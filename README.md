@@ -42,6 +42,31 @@ node --test studio-check.test.mjs
 
 Tests inject an in-memory fetch fixture and never call GitHub or create disk fixtures.
 
+## Browser app
+
+Serve the `web` directory with any static HTTP server. For example, if Python 3 is already available:
+
+```sh
+python3 -m http.server 8000 --bind 127.0.0.1 --directory web
+```
+
+Open `http://127.0.0.1:8000`. Enter a GitHub organization and choose **Audit**. The form defaults to `wlkr-si`; loading the page never starts an audit. The `?org=` query preserves the form value for sharing. JSON is downloadable after an actual result. The browser uses the same audit core as the CLI, excludes archived repositories, and has no account, saved history, analytics, backend, or installation. It does not open homepage or metadata-provided links.
+
+The browser sends requests directly to GitHub without credentials or a custom User-Agent. GitHub's public API rate limits and CORS rules apply to the visitor's network. Modern browsers with ES modules, native fetch, and `AbortSignal.timeout` are required. Opening the HTML as a `file:` URL is unsupported; use HTTP. The browser does not offer the CLI's archived-repository option.
+
+`wrangler.jsonc` describes static assets only, with no Worker runtime, functions, domain routes, or paid bindings. The `web` directory is the entire deployable artifact; keep source tests, git metadata, credentials, and fixture files outside it. Provider costs and domain setup must be checked separately before a deployment. Nothing in the run/check commands deploys or publishes the app.
+
+Validate source syntax and the shared behavior before publishing:
+
+```sh
+node --check studio-check.mjs
+node --check web/audit.mjs
+node --check web/app.mjs
+node --test studio-check.test.mjs
+```
+
+For browser verification, serve `web`, confirm no API request happens before **Audit**, run an audit, and check complete, incomplete, empty, and rate-limit results. Check keyboard focus and a 320px viewport. Public descriptions must render as text, including strings resembling HTML; repository links must stay on `github.com`. Browser results are live public metadata, not bundled demo results.
+
 ## Limits
 
 This is a presence inventory, not a quality score, legal review, security scan, link checker, or test of whether software works. It inspects only GitHub's public metadata and community profiles. Public API rate limits apply; large organizations can exceed them. Requests time out after 10 seconds, run at most four at a time, and are not retried. After an identified rate limit, new requests stop; already running requests may finish. The API can change while pagination is in progress; duplicates are removed but a report is not an atomic snapshot. GitHub's community profile detection may lag file changes or omit file formats. Organization defaults cannot be verified if the repository list is incomplete.

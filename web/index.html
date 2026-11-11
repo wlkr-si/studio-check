@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Audit a GitHub organization's public repository presence.">
+  <title>studio-check — WLKR.SI</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <main>
+    <header><h1>studio-check</h1></header>
+    <form id="audit-form">
+      <label for="organization">GitHub organization</label>
+      <div class="form-row">
+        <input id="organization" name="org" value="wlkr-si" required maxlength="39" autocomplete="off" autocapitalize="none" spellcheck="false">
+        <button id="audit-button" type="submit">Audit</button>
+      </div>
+    </form>
+    <p id="status" role="status" aria-live="polite" aria-atomic="true"></p>
+    <section id="results" aria-label="Audit results" hidden></section>
+    <noscript><p>JavaScript is required to run this public GitHub audit.</p></noscript>
+  </main>
+  <footer>
+    <nav aria-label="Project"><a href="https://github.com/wlkr-si/studio-check">Source</a><a href="https://github.com/wlkr-si/studio-check#run">CLI</a><a href="https://wlkr.si">Studio</a></nav>
+    <a href="https://wlkr.si" class="studio-badge"><picture><source media="(prefers-color-scheme: dark)" srcset="https://wlkr.si/brand/part-of-wlkr-si-dark.svg"><img src="https://wlkr.si/brand/part-of-wlkr-si-light.svg" alt="Part of WLKR.SI" width="184" height="32"></picture></a>
+  </footer>
+</body>
+</html>
