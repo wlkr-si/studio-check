@@ -9,6 +9,8 @@ function fixture(routes) {
   const calls = [];
   const fetchImpl = async (url, options) => {
     assert.equal(options.headers.Authorization, undefined);
+    assert.equal(options.headers['User-Agent'], undefined);
+    assert.equal(options.credentials, 'omit');
     assert.equal(options.redirect, 'error');
     assert.ok(options.signal instanceof AbortSignal);
     const path = url.replace('https://api.github.com', '');
@@ -162,4 +164,14 @@ test('at most four profile requests run concurrently', async () => {
 test('terminal output removes control characters from public metadata', () => {
   const report = { organization: 'demo', repositories: [{ name: 'demo/tool', description: '\u001b[2Jhello\nworld', homepage: null, readme: { status: 'unknown' }, license: {}, community: {} }], excludedArchived: 0, complete: true, errors: [] };
   assert.doesNotMatch(formatReport(report), /\u001b/);
+});
+
+test('browser-compatible entry exports the same audit and validates before fetch', async () => {
+  const core = await import('./web/audit.mjs');
+  assert.equal(core.audit, audit);
+  for (const value of [null, undefined, 42, {}, 'https://github.com/demo']) {
+    await assert.rejects(core.audit(value, { fetchImpl: () => assert.fail('must not request invalid org') }));
+  }
+  const f = fixture({ [list(1)]: { body: [] } });
+  assert.deepEqual((await core.audit('demo', f)).repositories, []);
 });
