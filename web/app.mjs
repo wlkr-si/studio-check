@@ -22,6 +22,15 @@ function element(tag, value, className) {
   return node;
 }
 
+function downloadFile(content, mime, filename) {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
+  const link = element('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function stateText(state) {
   return state.status === 'present' ? 'Present' : state.status === 'not-reported' ? 'Not reported' : 'Unknown';
 }
@@ -41,12 +50,7 @@ function render({ report, origin }) {
     const download = element('button', `Download ${extension.toUpperCase()}`, 'download');
     download.type = 'button';
     download.addEventListener('click', () => {
-      const url = URL.createObjectURL(new Blob([content()], { type: mime }));
-      const link = element('a');
-      link.href = url;
-      link.download = `${report.organization}-studio-check.${extension}`;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      downloadFile(content(), mime, `${report.organization}-studio-check.${extension}`);
     });
     downloads.append(download);
   }
@@ -228,7 +232,16 @@ function renderComparison(report) {
     catch (error) { notice.textContent = `Cannot compare: ${error.message}`; return; }
     const title = element('h2', 'Changes from baseline');
     title.tabIndex = -1;
-    content.append(title, element('p', `Baseline: ${comparison.baselineComplete ? 'complete' : 'incomplete'} · Current: ${comparison.currentComplete ? 'complete' : 'incomplete'}`, 'summary'));
+    const download = element('button', 'Download comparison JSON', 'download');
+    download.type = 'button';
+    download.addEventListener('click', () => {
+      // Read the live pair, never a captured delta from an earlier import/audit.
+      if (!download.isConnected || session.state.current?.report !== report) return;
+      const delta = session.comparison();
+      if (!delta) return;
+      downloadFile(JSON.stringify(delta, null, 2) + '\n', 'application/json', `${delta.organization}-studio-check-comparison.json`);
+    });
+    content.append(title, download, element('p', `Baseline: ${comparison.baselineComplete ? 'complete' : 'incomplete'} · Current: ${comparison.currentComplete ? 'complete' : 'incomplete'}`, 'summary'));
     if (!comparison.membershipConfirmed) content.append(element('p', 'At least one report is incomplete. Repository membership differences are unconfirmed; unknown file states are not missing files.', 'description'));
     if (!comparison.changes.length) content.append(element('p', comparison.membershipConfirmed ? 'No recorded changes.' : 'No differences in the collected repositories. Incomplete reports cannot establish unchanged membership.', 'description'));
     for (const change of comparison.changes) {

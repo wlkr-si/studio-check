@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, chmod, open, readdir,
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { main, parseArgs, HELP } from './studio-check.mjs';
-import { MAX_REPORT_BYTES, MAX_REPOSITORIES, compareReports } from './web/report-compare.mjs';
+import { MAX_REPORT_BYTES, MAX_REPOSITORIES, compareReports, comparisonReport } from './web/report-compare.mjs';
 
 function report() {
   const unknown = () => ({ status: 'unknown', source: null, url: null });
@@ -156,4 +156,32 @@ test('a file growing after stat is capped before decoding or parsing', async t =
     const result = await run(['--compare', ...paths]);
     assert.equal(result.code, 1); assert.match(result.error, /5 MiB/);
   } finally { prototype.stat = original; }
+});
+
+
+test('native CLI JSON exactly matches the browser delta envelope for complete and partial malicious metadata', async t => {
+  const before = report(), after = report();
+  after.organization = 'DEMO';
+  before.includeArchived = after.includeArchived = true;
+  after.repositories[0].description = '<img src=x onerror=alert(1)>';
+  after.repositories[0].license = { status: 'declared', declared: '<script>license</script>\u001b]0;title\u0007\u0085' };
+  after.repositories[0].community.contributing = { status: 'present', source: 'organization-default', url: null };
+  const { paths } = await files(t, before, after);
+  for (const complete of [true, false]) {
+    after.complete = complete;
+    after.errors = complete ? [] : ['Partial request'];
+    if (!complete) before.repositories = [];
+    await writeFile(paths[0], JSON.stringify(before)); await writeFile(paths[1], JSON.stringify(after));
+    const result = processRun(['--compare', ...paths, '--json']);
+    assert.equal(result.status, complete ? 0 : 2, result.stderr);
+    assert.equal(result.stderr, '');
+    const expected = comparisonReport(before, after);
+    assert.deepEqual(JSON.parse(result.stdout), expected);
+    assert.deepEqual(Object.keys(expected).sort(), ['organization', 'includeArchived', 'baselineComplete', 'currentComplete', 'membershipConfirmed', 'changes'].sort());
+    assert.equal(expected.membershipConfirmed, complete);
+    if (complete) {
+      assert.match(JSON.stringify(expected), /Unknown/);
+      assert.match(JSON.stringify(expected), /organization default/);
+    } else assert.match(expected.changes[0].membership, /unconfirmed/);
+  }
 });
