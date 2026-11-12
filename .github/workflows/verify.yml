@@ -1,0 +1,43 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    if: ${{ github.event.repository.visibility == 'public' && toJSON(github.event.repository.private) == 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['24.22.3', '26.8.2']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - name: Core tests
+        run: node --test *.test.mjs
+      - name: Install MCP test dependencies
+        run: npm ci --prefix mcp
+      - name: Offline MCP wire tests
+        run: npm --prefix mcp test
+      - name: Audit production dependencies
+        run: npm --prefix mcp audit --omit=dev --audit-level=high
+      - name: Verify production-only installation
+        run: |
+          npm ci --prefix mcp --omit=dev
+          node mcp/index.mjs </dev/null

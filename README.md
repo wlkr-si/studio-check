@@ -29,8 +29,15 @@ Run it from a checkout or package copy with Node.js 24 or newer:
 
 ```sh
 cd mcp
-npm ci
+npm ci --omit=dev
 npm start
+```
+
+For the offline fixture tests, install the test-only official clients and run:
+
+```sh
+npm ci
+npm test
 ```
 
 Register the command and its mcp/ working directory with an MCP client that supports MCP stdio. The adapter serves both the 2025-11-25 protocol and the modern 2026-07-28 protocol. Interoperability was verified with the official TypeScript SDK client 1.32.2 on 2025-11-25 and official client 2.4.0 pinned to 2026-07-28. Other clients are not qualified. Adapter tests passed on Node 24.22.3 (official archive SHA-256 verified) and 26.8.2.
