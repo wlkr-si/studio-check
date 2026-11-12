@@ -19,7 +19,24 @@ node studio-check.mjs wlkr-si --include-archived
 node studio-check.mjs --help
 ```
 
-The organization must be a name, not a URL. The CLI sends read-only, unauthenticated requests to `api.github.com`. It does not read credentials or environment tokens, follow returned URLs, fetch homepages, or write files.
+The organization must be a name, not a URL. The organization audit sends read-only, unauthenticated requests to `api.github.com`. It does not read credentials or environment tokens, follow returned URLs, fetch homepages, or write files.
+
+## Offline CLI comparison
+
+```sh
+node studio-check.mjs --compare before.json after.json
+node studio-check.mjs --compare before.json after.json --json
+node studio-check.mjs --compare --json -- "-before report.json" "-after report.json"
+node studio-check.mjs --compare --help
+```
+
+`--compare` must come first and takes exactly two filenames. It reads only those named report files, calls the same parser/comparator as the browser, and makes no network request or credential lookup. It writes no report or cache. The first file is the saved baseline; the second is the current report. JSON output is a comparison object with organization, archive mode, both completeness flags, membership certainty and per-repository changes. Human output removes terminal control characters; comparison JSON preserves them as escaped data. It does not change the audit JSON/CSV formats. An organization literally named `compare` still works with the existing audit invocation.
+
+Each input must be a readable regular UTF-8 JSON file of at most 5 MiB and 5,000 repositories matching the exact current report schema. File size is checked before reading, and reads stop at the limit plus one byte even if a file grows. Directories, FIFOs and devices are refused. Final-component symlinks are refused; symlinked parent directories resolve normally and hard links behave as regular files. `--` lets filenames begin with a hyphen; a filename `-` is a file, never stdin. File-open/read errors do not print paths or file contents. Keep the files unchanged while comparing; the reader cannot make concurrent external edits into an atomic snapshot.
+
+Offline file safety requires Node's nonblocking/no-follow open flags (Linux and macOS); unsupported platforms fail explicitly rather than following a link or potentially waiting on a special file. These flags and regular-file checks do not guarantee a deadline for a stalled network filesystem. See [Node file-open constants](https://nodejs.org/download/release/v26.8.2/docs/api/fs.html#file-open-constants).
+
+Comparison requires matching organization names (case-insensitive) and Include archived modes. Exit **0** means both reports claim completeness, including when differences exist. Exit **2** means either report is incomplete; repository membership differences remain unconfirmed. Exit **1** means argument, read, validation or compatibility failure. Metadata differences are observations, not a quality score. Saved files have no timestamp or authenticity proof; the command cannot establish their age or truth. See [comparison scope and limits](#compare-a-saved-report).
 
 ## Report
 
@@ -39,10 +56,11 @@ Exit codes:
 
 ```sh
 node --check studio-check.mjs
+node --check read-saved-report.mjs
 node --test *.test.mjs
 ```
 
-Tests inject an in-memory fetch fixture and never call GitHub or create disk fixtures.
+Audit tests inject an in-memory fetch fixture and never call GitHub. Offline CLI tests use task-owned temporary files, real process entry points, FIFO/device rejection and a fetch guard; fixtures are removed after each test.
 
 ## Browser app
 
