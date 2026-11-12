@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.0 - 2026-11-12
+
+- Added Load snapshot for the actual complete six-repository public wlkr-si report captured on 2026-11-12. It opens through strict saved-report parsing, retains the dated origin, supports existing JSON/CSV and baseline comparisons, and makes no request.
+- Snapshot intent aborts/discards older audit work and supersedes pending current/baseline file reads. Compatible baselines remain; incompatible imports preserve both reports.
+
+Browser source release; live publication is qualified separately. The six served asset paths, shared audit/CLI contracts, MCP package version 0.12.0 and dependencies are unchanged.
+
 ## 0.12.0 - 2026-11-12
 
 - Added local `compare_saved_reports` to the optional stdio MCP adapter, using strict bounded JSON-text inputs and the unchanged CLI/browser comparison envelope. Comparisons share the two-operation limit with audits and fail explicitly rather than truncating oversized deltas.
