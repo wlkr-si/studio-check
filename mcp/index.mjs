@@ -180,7 +180,7 @@ export function createMcpServer({ auditImpl = audit, fetchImpl = fetch } = {}) {
 export function startStdio() {
   const transport = new StdioServerTransport(process.stdin, process.stdout, { maxBufferSize: 64 * 1024 })
   const handle = serveStdio(() => createMcpServer(), {
-    legacy: "reject",
+    legacy: "serve",
     transport,
     onerror: error => console.error("studio-check MCP transport error: " + error.name),
   })
