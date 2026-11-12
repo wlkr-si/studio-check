@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto"
 import { execFileSync, spawnSync } from "node:child_process"
-import { copyFile, mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, open, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { isDeepStrictEqual } from "node:util"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { join, resolve } from "node:path"
@@ -73,40 +73,65 @@ export function sourceState(run = processAdapter) {
   return commit
 }
 
-export async function createSnapshot({ root = process.cwd(), directory, commit, read = readFile } = {}) {
+export function verifyCommittedFile(commit, path, bytes, run = processAdapter) {
+  const tree = required(run("git", ["ls-tree", commit, "--", path]), "Read committed file identity").trim()
+  const entry = tree.match(/^100(?:644|755) blob ([0-9a-f]{40})\t(.+)$/)
+  if (!entry || entry[2] !== path) throw new Error("Deploy source must be a committed regular file: " + path)
+  const blob = createHash("sha1").update(Buffer.from("blob " + bytes.length + "\0")).update(bytes).digest("hex")
+  if (blob !== entry[1]) throw new Error("Snapshot bytes differ from committed source: " + path)
+  return bytes
+}
+
+export async function createSnapshot({ root = process.cwd(), directory, commit, read = readFile, run = processAdapter } = {}) {
   if (!HEX40.test(commit || "")) throw new Error("Cannot create a snapshot without a full source commit.")
   await mkdir(directory, { recursive: false })
   const hashes = {}
   for (const [path, filename] of Object.entries(ASSETS)) {
-    const bytes = await read(join(root, "web", filename))
+    const bytes = verifyCommittedFile(commit, "web/" + filename, await read(join(root, "web", filename)), run)
     hashes[path] = sha(bytes)
     await writeFile(join(directory, filename), bytes, { flag: "wx" })
   }
-  await copyFile(join(root, "web", "_headers"), join(directory, "_headers"), 0)
+  const headers = verifyCommittedFile(commit, "web/_headers", await read(join(root, "web", "_headers")), run)
+  await writeFile(join(directory, "_headers"), headers, { flag: "wx" })
   const receipt = { schemaVersion: 1, sourceCommit: commit, assets: hashes }
   validateReceipt(receipt)
   await writeFile(join(directory, "build-info.json"), JSON.stringify(receipt) + "\n", { flag: "wx" })
   return receipt
 }
 
+export async function verifySnapshot(directory, receipt, run = processAdapter) {
+  validateReceipt(receipt)
+  const entries = await readdir(directory, { withFileTypes: true })
+  const expected = [...Object.values(ASSETS), "_headers", "build-info.json"].sort()
+  if (entries.some(entry => !entry.isFile()) || !isDeepStrictEqual(entries.map(entry => entry.name).sort(), expected)) throw new Error("Unexpected or nonregular snapshot asset.")
+  for (const [path, filename] of Object.entries(ASSETS)) if (sha(await readFile(join(directory, filename))) !== receipt.assets[path]) throw new Error("Snapshot asset changed: " + path)
+  verifyCommittedFile(receipt.sourceCommit, "web/_headers", await readFile(join(directory, "_headers")), run)
+  if (!isDeepStrictEqual(validateReceipt(JSON.parse(await readFile(join(directory, "build-info.json"), "utf8"))), receipt)) throw new Error("Snapshot receipt changed.")
+}
+
+export async function parsePublicReceipt(response, expected) {
+  if (expected) validateReceipt(expected)
+  const bootstrap = { schemaVersion: 1, sourceCommit: BASELINE_COMMIT, assets: BASELINE }
+  if (response.status === 404 && (!expected || isDeepStrictEqual(expected, bootstrap))) return bootstrap
+  if (!response.ok) throw new Error("Public build receipt returned HTTP " + response.status + ".")
+  const receipt = validateReceipt(JSON.parse(Buffer.from(await response.arrayBuffer()).toString("utf8")))
+  if (expected && !isDeepStrictEqual(receipt, expected)) throw new Error("Public build receipt differs from the expected receipt.")
+  return receipt
+}
+
 export async function verifyPublic(expected, { fetchImpl = fetch, timeoutMs = 7000, nonce = randomUUID() } = {}) {
-  const receiptResponse = await fetchImpl(HOST + "/build-info.json?release=" + nonce, requestOptions(timeoutMs))
-  let receipt
-  if (receiptResponse.status === 404 && !expected) {
-    receipt = { schemaVersion: 1, sourceCommit: BASELINE_COMMIT, assets: BASELINE }
-  } else {
-    if (!receiptResponse.ok) throw new Error("Public build receipt returned HTTP " + receiptResponse.status + ".")
-    receipt = validateReceipt(JSON.parse(Buffer.from(await receiptResponse.arrayBuffer()).toString("utf8")))
-    if (expected && !isDeepStrictEqual(receipt, expected)) throw new Error("Public build receipt differs from the expected receipt.")
-  }
+  const receiptUrl = HOST + "/build-info.json?release=" + nonce
+  const response = await fetchImpl(receiptUrl, requestOptions(timeoutMs))
+  const receipt = await parsePublicReceipt(response, expected)
   for (const [path, hash] of Object.entries(receipt.assets)) {
-    const response = await fetchImpl(HOST + path + "?release=" + nonce, requestOptions(timeoutMs))
-    if (!response.ok) throw new Error(HOST + path + ": HTTP " + response.status)
-    const content = Buffer.from(await response.arrayBuffer())
-    if (sha(content) !== hash) throw new Error(HOST + path + ": SHA-256 differs from verified receipt.")
-    const cache = response.headers.get("cache-control") || ""
-    if (!/no-transform/i.test(cache) || (response.headers.get("x-content-type-options") || "").toLowerCase() !== "nosniff") throw new Error(HOST + path + ": expected no-transform and nosniff response headers.")
+    const asset = await fetchImpl(HOST + path + "?release=" + nonce, requestOptions(timeoutMs))
+    if (!asset.ok) throw new Error(HOST + path + ": HTTP " + asset.status)
+    if (sha(Buffer.from(await asset.arrayBuffer())) !== hash) throw new Error(HOST + path + ": SHA-256 differs from verified receipt.")
+    if (!/no-transform/i.test(asset.headers.get("cache-control") || "") || (asset.headers.get("x-content-type-options") || "").toLowerCase() !== "nosniff") throw new Error(HOST + path + ": expected no-transform and nosniff response headers.")
   }
+  const finalResponse = await fetchImpl(receiptUrl, requestOptions(timeoutMs))
+  if ((response.status === 404) !== (finalResponse.status === 404)) throw new Error("Public receipt availability changed during verification.")
+  await parsePublicReceipt(finalResponse, receipt)
   return receipt
 }
 function requestOptions(timeoutMs) {
@@ -138,13 +163,17 @@ export async function release({ root = process.cwd(), run = processAdapter, fetc
   const cli = required(run("wrangler", ["--version"]), "Check installed Wrangler").trim()
   if (cli !== "4.153.0") throw new Error("Release requires Wrangler 4.153.0 on PATH.")
   const commit = sourceState(run)
+  const configBytes = verifyCommittedFile(commit, "wrangler.jsonc", await read(join(root, "wrangler.jsonc")), run)
+  const config = JSON.parse(configBytes.toString("utf8"))
+  const allowedConfig = { name: NAME, compatibility_date: "2026-11-11", assets: { directory: "./web" }, workers_dev: false, preview_urls: false }
+  if (!isDeepStrictEqual(config, allowedConfig)) throw new Error("Release requires the qualified static-only Wrangler configuration.")
   const gate = ["release.mjs", "studio-check.mjs", "read-saved-report.mjs", "web/audit.mjs", "web/app.mjs", "web/report-csv.mjs", "web/report-compare.mjs"]
   for (const path of gate) required(run("node", ["--check", path]), "Syntax check " + path)
   required(run("node", ["--test", "*.test.mjs"], undefined, 600_000), "Behavior tests")
   if (sourceState(run) !== commit) throw new Error("Source changed while release checks ran.")
   await mkdir(join(root, ".task"), { recursive: true })
   const work = await mkdtemp(join(root, ".task", "release-"))
-  let prior, priorVersion, version, activationAttempted = false
+  let prior, priorVersion, version, baseline, baselineVerified = false, activationAttempted = false
   const marker = "studio-check-release:" + id
   const restoreMarker = "studio-check-restore:" + id
   const wrangler = async args => run("wrangler", [...args, "--config", "wrangler.jsonc", "--name", NAME])
@@ -154,22 +183,29 @@ export async function release({ root = process.cwd(), run = processAdapter, fetc
     if (observed.id !== known.id || observed.versions[0].version_id !== known.versions[0].version_id) throw new ConflictError("Deployment changed from " + known.id + "; no further writes. Inspect provider before retrying.")
     return observed
   }
-  const verify = expected => verifyImpl(expected, { fetchImpl })
+  const verify = async expected => {
+    const served = validateReceipt(await verifyImpl(expected, { fetchImpl }))
+    if (expected && !isDeepStrictEqual(served, expected)) throw new Error("Public receipt differs from the captured expected release.")
+    return served
+  }
   try {
     if (sourceState(run) !== commit) throw new Error("Source changed before snapshot creation.")
-    const candidate = await createSnapshot({ root, directory: join(work, "assets"), commit, read })
+    const candidate = await createSnapshot({ root, directory: join(work, "assets"), commit, read, run })
     if (sourceState(run) !== commit) throw new Error("Source changed while the candidate snapshot was created.")
     prior = await current()
     priorVersion = prior.versions[0].version_id
-    const baseline = await verify(null)
+    baseline = await verify(null)
     verifyBaselineSource(baseline, commit, run)
+    baselineVerified = true
     await assertCurrent(prior)
     log("Verified prior deployment " + prior.id + " version " + priorVersion + "; baseline " + baseline.sourceCommit + ".")
     if (sourceState(run) !== commit) throw new Error("Source changed before upload.")
+    await verifySnapshot(join(work, "assets"), candidate, run)
     const uploaded = required(await wrangler(["versions", "upload", "--assets", join(work, "assets"), "--message", marker, "--strict"]), "Upload inactive static version")
     const ids = [...uploaded.matchAll(/Worker Version ID:\s*([0-9a-f-]{36})/gi)]
     if (ids.length !== 1 || !UUID.test(ids[0][1])) throw new Error("Upload did not return one valid version ID; no activation attempted. Inspect provider versions.")
     version = ids[0][1]
+    await verifySnapshot(join(work, "assets"), candidate, run)
     await assertCurrent(prior)
     if (sourceState(run) !== commit) throw new Error("Source changed before activation.")
     activationAttempted = true
@@ -183,7 +219,7 @@ export async function release({ root = process.cwd(), run = processAdapter, fetc
     return { sourceCommit: commit, version, deployment: active.id, previousVersion: priorVersion, previousDeployment: prior.id, host: HOST }
   } catch (failure) {
     if (failure instanceof ConflictError) throw failure
-    if (!prior) throw failure
+    if (!prior || !baselineVerified) throw failure
     let active
     for (let attempt = 0; attempt < (activationAttempted ? 3 : 1); attempt++) {
       try { active = await current() }
@@ -192,7 +228,7 @@ export async function release({ root = process.cwd(), run = processAdapter, fetc
       if (activationAttempted && attempt < 2) await sleep(2000)
     }
     if (active.id === prior.id) {
-      await verify(null)
+      await verify(baseline)
       await assertCurrent(prior)
       throw new Error(failure.message + "\nPrevious deployment " + prior.id + " remains active and verified. " + (activationAttempted ? "Activation outcome may be delayed; inspect marker " + marker + "." : "No activation occurred."))
     }
@@ -210,7 +246,7 @@ export async function release({ root = process.cwd(), run = processAdapter, fetc
       if (attempt < 2) await sleep(2000)
     }
     if (!owns(restored, priorVersion, restoreMarker)) throw new Error(failure.message + "\nRollback not confirmed (CLI status " + rollback.status + "); inspect active deployment " + restored.id + " and prior version " + priorVersion + ".")
-    try { await verify(null); await assertCurrent(restored) }
+    try { await verify(baseline); await assertCurrent(restored) }
     catch (error) { throw new Error(failure.message + "\nRestored deployment " + restored.id + " failed public verification: " + error.message + ".") }
     throw new Error(failure.message + "\nPrevious version " + priorVersion + " restored and verified in deployment " + restored.id + ".")
   } finally {
@@ -230,6 +266,7 @@ export async function withReleaseLock(path, action) {
 }
 
 async function main() {
+  if (process.versions.node !== "26.8.2") throw new Error("Static publication requires the qualified Node 26.8.2 runtime.")
   if (process.argv.length !== 2) throw new Error("Usage: node release.mjs")
   const root = fileURLToPath(new URL("./", import.meta.url))
   process.chdir(root)

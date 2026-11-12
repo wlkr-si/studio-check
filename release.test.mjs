@@ -3,13 +3,16 @@ import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { mkdir, mkdtemp, readFile, rm, readdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { ASSETS, BASELINE, BASELINE_COMMIT, HOST, latestDeployment, release, sourceState, validateReceipt, verifyBaselineSource, verifyPublic, withReleaseLock, createSnapshot } from "./release.mjs"
+import { writeFileSync } from "node:fs"
+import { ASSETS, BASELINE, BASELINE_COMMIT, HOST, latestDeployment, release, sourceState, validateReceipt, verifyBaselineSource, verifyPublic, withReleaseLock, createSnapshot, verifyCommittedFile, verifySnapshot, parsePublicReceipt } from "./release.mjs"
 
 const COMMIT = "1111111111111111111111111111111111111111"
 const OLD = "11111111-1111-4111-8111-111111111111"
 const NEW = "22222222-2222-4222-8222-222222222222"
 const OTHER = "33333333-3333-4333-8333-333333333333"
 const digest = value => createHash("sha256").update(value).digest("hex")
+const CONFIG = JSON.stringify({ name: "studio-check", compatibility_date: "2026-11-11", assets: { directory: "./web" }, workers_dev: false, preview_urls: false })
+const gitBlob = value => { const bytes = Buffer.from(value); return createHash("sha1").update(Buffer.from("blob " + bytes.length + "\0")).update(bytes).digest("hex") }
 const fixtureRoots = new Set()
 after(async () => { await Promise.all([...fixtureRoots].map(path => rm(path, { recursive: true, force: true }))); fixtureRoots.clear() })
 const paths = ["web/_headers", ...Object.values(ASSETS).map(name => "web/" + name)].sort()
@@ -37,6 +40,10 @@ function fixture(options = {}) {
       if (args[0] === "merge-base") return { status: options.unknownBaseline ? 1 : 0, stdout: "" }
       if (args[0] === "tag") return { status: 0, stdout: options.taggedBaseline ? "v0.7.0\n" : "" }
       if (args[0] === "show") return { status: 0, stdout: "source" }
+      if (args[0] === "ls-tree") {
+        const path = args.at(-1), value = path === "wrangler.jsonc" ? CONFIG : path === "web/_headers" ? "headers" : assets[path.slice(4)]
+        return { status: 0, stdout: "100644 blob " + gitBlob(value) + "\t" + path + "\n" }
+      }
     }
     if (command === "node") return { status: 0, stdout: "" }
     assert.equal(command, "wrangler")
@@ -49,6 +56,7 @@ function fixture(options = {}) {
     }
     if (args[0] === "versions" && args[1] === "upload") {
       state.writes.push("upload")
+      if (options.mutateUpload) writeFileSync(join(args[args.indexOf("--assets") + 1], "app.mjs"), "changed during upload")
       return { status: options.uploadFails ? 1 : 0, stdout: options.uploadFails ? "" : "Worker Version ID: " + NEW + "\n" }
     }
     if (args[0] === "versions" && args[1] === "deploy") {
@@ -67,9 +75,10 @@ function fixture(options = {}) {
     throw new Error("Unexpected command " + command + " " + args.join(" "))
   }
   async function verifyImpl(expected) {
-    if (expected === null) {
+    if (expected === null || expected.sourceCommit === BASELINE_COMMIT) {
       state.baselineChecks++
       if (options.badRestore && state.rollbackCount > 0) throw new Error("injected restored bytes mismatch")
+      if (options.wrongRestore && state.rollbackCount > 0) return { schemaVersion: 1, sourceCommit: COMMIT, assets: BASELINE }
       return { schemaVersion: 1, sourceCommit: BASELINE_COMMIT, assets: BASELINE }
     }
     if (options.candidateVerificationFails) { state.candidateFailed = true; throw new Error("injected candidate bytes mismatch") }
@@ -131,7 +140,7 @@ test("snapshot contains exactly six served assets, headers and strict receipt", 
   await writeFile(join(f.root, "web", "_headers"), "headers")
   const directory = await mkdtemp(join(f.root, ".task", "snap-"))
   try {
-    const receipt = await createSnapshot({ root: f.root, directory: join(directory, "assets"), commit: COMMIT })
+    const receipt = await createSnapshot({ root: f.root, directory: join(directory, "assets"), commit: COMMIT, run: f.run })
     const files = (await readdir(join(directory, "assets"))).sort()
     assert.deepEqual(files, [...Object.values(ASSETS), "_headers", "build-info.json"].sort())
     assert.equal(receipt.assets["/"], digest("source-0"))
@@ -154,7 +163,7 @@ test("public verifier checks response identity, all bytes and required headers",
     return new Response(body, { headers: { "cache-control": "public, no-transform", "x-content-type-options": "nosniff" } })
   }
   assert.deepEqual(await verifyPublic(receipt, { fetchImpl }), receipt)
-  assert.equal(calls, 7)
+  assert.equal(calls, 8)
   await assert.rejects(verifyPublic({ ...receipt, sourceCommit: "2".repeat(40) }, { fetchImpl }), /differs from the expected receipt/)
   await assert.rejects(verifyPublic(receipt, { fetchImpl: async (url, init) => {
     const response = await fetchImpl(url, init)
@@ -166,6 +175,7 @@ test("public verifier checks response identity, all bytes and required headers",
 
 async function prepare(f) {
   await mkdir(join(f.root, "web"), { recursive: true })
+  await writeFile(join(f.root, "wrangler.jsonc"), CONFIG)
   await mkdir(join(f.root, ".task"), { recursive: true })
   for (const name of Object.values(ASSETS)) await writeFile(join(f.root, "web", name), f.assets[name])
   await writeFile(join(f.root, "web", "_headers"), "headers")
@@ -235,4 +245,66 @@ test("release lock serializes runs and removes lock after action failure", async
     await assert.rejects(withReleaseLock(path, async () => { throw new Error("injected") }), /injected/)
     await assert.rejects(readFile(path))
   } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+
+test("committed identity rejects symlinks and different bytes", () => {
+  const bytes = Buffer.from("public source"), path = "web/index.html"
+  const tree = mode => () => ({ status: 0, stdout: mode + " blob " + gitBlob(bytes) + "\t" + path + "\n" })
+  assert.equal(verifyCommittedFile(COMMIT, path, bytes, tree("100644")), bytes)
+  assert.throws(() => verifyCommittedFile(COMMIT, path, bytes, tree("120000")), /regular file/)
+  assert.throws(() => verifyCommittedFile(COMMIT, path, Buffer.from("private external bytes"), tree("100644")), /differ from committed/)
+})
+
+test("snapshot refuses changed bytes, extra files and a changed receipt", async () => {
+  const f = fixture(); await prepare(f)
+  const dir = join(f.root, ".task", "snapshot")
+  const receipt = await createSnapshot({ root: f.root, directory: dir, commit: COMMIT, run: f.run })
+  await verifySnapshot(dir, receipt, f.run)
+  await writeFile(join(dir, "app.mjs"), "changed")
+  await assert.rejects(verifySnapshot(dir, receipt, f.run), /asset changed/)
+  await writeFile(join(dir, "app.mjs"), f.assets["app.mjs"])
+  await writeFile(join(dir, "private.txt"), "must not upload")
+  await assert.rejects(verifySnapshot(dir, receipt, f.run), /Unexpected/)
+  await rm(join(dir, "private.txt"))
+  await writeFile(join(dir, "build-info.json"), JSON.stringify({ ...receipt, sourceCommit: "2".repeat(40) }))
+  await assert.rejects(verifySnapshot(dir, receipt, f.run), /receipt changed/)
+})
+
+test("receipt absence is accepted only for the exact migration baseline", async () => {
+  const baseline = { schemaVersion: 1, sourceCommit: BASELINE_COMMIT, assets: BASELINE }
+  assert.deepEqual(await parsePublicReceipt(new Response(null, { status: 404 }), baseline), baseline)
+  await assert.rejects(parsePublicReceipt(new Response(null, { status: 404 }), { ...baseline, sourceCommit: COMMIT }), /HTTP 404/)
+  await assert.rejects(parsePublicReceipt(new Response(null, { status: 503 }), baseline), /HTTP 503/)
+})
+
+test("a different valid receipt cannot establish restoration of the captured baseline", async () => {
+  const f = fixture({ candidateVerificationFails: true, wrongRestore: true }); await prepare(f)
+  await assert.rejects(release({ root: f.root, run: f.run, verifyImpl: f.verifyImpl, sleep: async () => {} }), /failed public verification.*captured expected/)
+  assert.equal(f.state.rollbackCount, 1)
+})
+
+test("changed configuration stops before provider writes", async () => {
+  const f = fixture(); await prepare(f)
+  await writeFile(join(f.root, "wrangler.jsonc"), CONFIG.replace('"workers_dev":false', '"workers_dev":true'))
+  await assert.rejects(release({ root: f.root, run: f.run, verifyImpl: f.verifyImpl }), /differ from committed source/)
+  assert.equal(f.state.writes.length, 0)
+})
+
+
+test("snapshot mutation during upload prevents any activation", async () => {
+  const f = fixture({ mutateUpload: true }); await prepare(f)
+  await assert.rejects(release({ root: f.root, run: f.run, verifyImpl: f.verifyImpl }), /Snapshot asset changed.*[\s\S]*No activation occurred/)
+  assert.deepEqual(f.state.writes, ["upload"])
+  assert.equal(f.state.rollbackCount, 0)
+})
+
+test("committed but unqualified settings cannot expand the static deployment", async () => {
+  const f = fixture(); await prepare(f)
+  const changed = CONFIG.replace('"workers_dev":false', '"workers_dev":true')
+  await writeFile(join(f.root, "wrangler.jsonc"), changed)
+  const run = (command, args) => command === "git" && args[0] === "ls-tree" && args.at(-1) === "wrangler.jsonc"
+    ? { status: 0, stdout: "100644 blob " + gitBlob(changed) + "\twrangler.jsonc\n" } : f.run(command, args)
+  await assert.rejects(release({ root: f.root, run, verifyImpl: f.verifyImpl }), /qualified static-only/)
+  assert.equal(f.state.writes.length, 0)
 })

@@ -56,11 +56,13 @@ Exit codes:
 
 From a clean main checkout on the release machine, run this with Node 26.8.2 and the existing Wrangler 4.153.0 executable on PATH:
 
-    PATH=/home/octal8/work/wlkr-rad-1111/website/node_modules/.bin:/home/octal8/.local/bin:$PATH mise exec node@26.8.2 -- node release.mjs
+    node release.mjs
 
-The command runs the repository syntax and behavior checks, snapshots only the six tracked served files plus _headers, and writes a strict build-info.json receipt into that private task-owned snapshot. The generated receipt and tests are never copied into web/ or the source tree.
+The command runs the repository syntax and behavior checks, snapshots only the six tracked served files plus _headers, and adds a public build-info.json receipt in the temporary upload directory. Tests stay outside the upload; generated files do not change the tracked web/ source.
 
-Before uploading, it captures the active 100-percent deployment and verifies every public asset and the no-transform/nosniff headers. The first receipt-less release accepts only the pinned v0.7.0 source hashes; later receipts must match an accepted release tag and its committed bytes. It uploads the snapshot as an inactive version, verifies the source and deployment again, activates only that version, then checks the receipt and all six asset hashes from the public host. A failed owned activation is reconciled and restored to the prior version only after a fresh deployment-ID check; foreign or uncertain states stop without another write. The command does not read credentials itself; Wrangler uses its caller-provided authentication environment.
+Before uploading, it captures the active 100-percent deployment and verifies every public asset and the no-transform/nosniff headers. The first receipt-less release accepts only the pinned migration source hashes; later receipts must match an accepted release tag and its committed bytes. It uploads the snapshot as an inactive version, verifies the source and deployment again, activates only that version, then checks the receipt and all six asset hashes from the public host. A failed owned activation is reconciled and restored to the prior version only after a fresh deployment-ID check; foreign or uncertain states stop without another write. The command does not read credentials itself; Wrangler uses its caller-provided authentication environment.
+
+The publisher binds every uploaded file, including headers and configuration, to a regular-file Git blob in the declared commit. It checks the closed snapshot before and after upload, rejects changed or extra artifacts, and permits only the qualified static-only configuration. Public verification rereads the receipt after checking all six assets. Reconciliation and restoration compare against the exact baseline captured before upload, including the explicitly pinned first migration where the public receipt is absent; a different valid receipt cannot count as restoration.
 
 Cloudflare does not provide atomic compare-and-swap for deployment activation. The publisher checks deployment identity immediately before each write and stops if an intervening deployment is observed, but a separate publisher can still race between that check and the provider write. In an uncertain race, inspect provider state before retrying.
 
