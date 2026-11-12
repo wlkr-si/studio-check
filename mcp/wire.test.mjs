@@ -1,5 +1,8 @@
 import assert from "node:assert/strict"
 import process from "node:process"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import test from "node:test"
 import { Client as LegacyClient } from "@modelcontextprotocol/sdk/client/index.js"
@@ -14,13 +17,16 @@ import { createMcpServer } from "./index.mjs"
 import { serveStdio } from "@modelcontextprotocol/server/stdio"
 
 const json = value => new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } })
-const sleepWithSignal = (ms, signal) => new Promise((resolve, reject) => {
-  const timer = setTimeout(resolve, ms)
-  signal.addEventListener("abort", () => {
-    clearTimeout(timer)
-    reject(new DOMException("fixture aborted", "AbortError"))
-  }, { once: true })
-})
+const waitForRelease = async signal => {
+  const { access } = await import("node:fs/promises")
+  const deadline = Date.now() + 10000
+  while (true) {
+    if (signal.aborted) throw new DOMException("fixture aborted", "AbortError")
+    try { await access(process.env.STUDIO_TEST_GATE); return } catch {}
+    if (Date.now() > deadline) throw new Error("fixture gate timed out")
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
+}
 async function fixtureFetch(input, init) {
   if (init.credentials !== "omit" || init.redirect !== "error") throw new Error("unsafe fetch options")
   const url = new URL(input)
@@ -38,7 +44,7 @@ async function fixtureFetch(input, init) {
     }
     if (org.startsWith("slow-")) {
       process.stderr.write("FIXTURE_SLOW_STARTED:" + org + "\\n")
-      await sleepWithSignal(350, init.signal)
+      await waitForRelease(init.signal)
     }
     if (org === "wlkr-si") return json([
       { full_name: "wlkr-si/demo", name: "demo", private: false, visibility: "public", archived: false, fork: false, description: "fixture project", homepage: null, license: { spdx_id: "MIT" } },
@@ -85,12 +91,12 @@ const expectedReport = {
   errors: [],
 }
 
-function connectClient(Client, Transport, modern) {
+function connectClient(Client, Transport, modern, gate = "") {
   const transport = new Transport({
     command: process.execPath,
     args: ["--input-type=module", "-e", fixtureProgram],
     cwd: mcpDir,
-    env: { PATH: process.env.PATH ?? "" },
+    env: { PATH: process.env.PATH ?? "", STUDIO_TEST_GATE: gate },
     stderr: "pipe",
     maxBufferSize: 65536,
   })
@@ -118,9 +124,13 @@ async function waitForText(connection, text) {
   assert.ok(connection.stderr.includes(text), "timed out waiting for " + text + "; stderr=" + connection.stderr)
 }
 async function withClient(t, Client, Transport, modern, exercise) {
-  const connection = connectClient(Client, Transport, modern)
+  const gateDir = await mkdtemp(join(tmpdir(), "studio-check-wire-"))
+  const gate = join(gateDir, "release")
+  const connection = connectClient(Client, Transport, modern, gate)
+  connection.release = () => writeFile(gate, "release")
   t.after(async () => {
     await connection.client.close().catch(() => {})
+    await rm(gateDir, { recursive: true, force: true })
   })
   await connection.client.connect(connection.transport)
   await exercise(connection, t)
@@ -154,6 +164,7 @@ for (const protocol of [
       const overCapacity = await call(connection, "slow-three")
       assert.equal(overCapacity.isError, true)
       assert.match(overCapacity.content[0].text, /capacity/)
+      await connection.release()
       const [one, two] = await Promise.all([slowOne, slowTwo])
       assert.equal(reportFrom(one).complete, true)
       assert.equal(reportFrom(two).complete, true)
