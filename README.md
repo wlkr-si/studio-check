@@ -52,6 +52,18 @@ Exit codes:
 - `1`: invalid arguments.
 - `2`: incomplete report because of an API, network, or profile availability error. JSON includes `complete: false` and `errors`; repositories collected before a pagination failure remain in the report.
 
+## Guarded static publication
+
+From a clean main checkout on the release machine, run this with Node 26.8.2 and the existing Wrangler 4.153.0 executable on PATH:
+
+    PATH=/home/octal8/work/wlkr-rad-1111/website/node_modules/.bin:/home/octal8/.local/bin:$PATH mise exec node@26.8.2 -- node release.mjs
+
+The command runs the repository syntax and behavior checks, snapshots only the six tracked served files plus _headers, and writes a strict build-info.json receipt into that private task-owned snapshot. The generated receipt and tests are never copied into web/ or the source tree.
+
+Before uploading, it captures the active 100-percent deployment and verifies every public asset and the no-transform/nosniff headers. The first receipt-less release accepts only the pinned v0.7.0 source hashes; later receipts must match an accepted release tag and its committed bytes. It uploads the snapshot as an inactive version, verifies the source and deployment again, activates only that version, then checks the receipt and all six asset hashes from the public host. A failed owned activation is reconciled and restored to the prior version only after a fresh deployment-ID check; foreign or uncertain states stop without another write. The command does not read credentials itself; Wrangler uses its caller-provided authentication environment.
+
+Cloudflare does not provide atomic compare-and-swap for deployment activation. The publisher checks deployment identity immediately before each write and stops if an intervening deployment is observed, but a separate publisher can still race between that check and the provider write. In an uncertain race, inspect provider state before retrying.
+
 ## Checks
 
 ```sh
