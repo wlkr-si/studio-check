@@ -21,6 +21,24 @@ node studio-check.mjs --help
 
 The organization must be a name, not a URL. The organization audit sends read-only, unauthenticated requests to `api.github.com`. It does not read credentials or environment tokens, follow returned URLs, fetch homepages, or write files.
 
+## MCP server
+
+The optional mcp/ package exposes one read-only tool, audit_public_org, over stdio. It calls the same public audit core as the browser and CLI. It does not read credentials, access user report files, start an HTTP listener, or change GitHub data.
+
+Run it from a checkout or package copy with Node.js 24 or newer:
+
+```sh
+cd mcp
+npm ci
+npm start
+```
+
+Register the command and its mcp/ working directory with an MCP client that supports the modern 2026-07-28 protocol. The adapter rejects the older 2025-era handshake. Interoperability was verified with the official TypeScript MCP client 2.4.0 pinned to protocol 2026-07-28. Other clients and protocol versions are not qualified.
+
+The tool accepts a GitHub organization name and optional includeArchived boolean. It uses unauthenticated public API requests only. Each audit is limited to two repository pages (at most 200 listed repositories), 256 requests, 512 KiB per response, and 8 MiB across responses. At most two audits run concurrently. The returned report is capped at 1 MiB; if repository rows must be omitted, complete becomes false and an error explains the truncation. API failures and these limits remain visible as incomplete results. Cancellation is passed through to active requests, and stdin EOF closes the server.
+
+The MCP adapter has its own private, locked dependencies under mcp/; the browser and CLI remain dependency-free. See [MCP TypeScript SDK stdio documentation](https://ts.sdk.modelcontextprotocol.io/v2/serving/stdio) and [protocol version negotiation](https://ts.sdk.modelcontextprotocol.io/v2/migration/support-2026-07-28).
+
 ## Offline CLI comparison
 
 ```sh
