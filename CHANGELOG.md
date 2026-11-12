@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.0 - 2026-11-12
+
+- Added local `compare_saved_reports` to the optional stdio MCP adapter, using strict bounded JSON-text inputs and the unchanged CLI/browser comparison envelope. Comparisons share the two-operation limit with audits and fail explicitly rather than truncating oversized deltas.
+- Qualified bounded escaped-report framing and cancellation/EOF/overflow cleanup. This source-only adapter release leaves browser assets, CLI/core contracts and publication unchanged.
+
 ## 0.11.0 - 2026-11-12
 
 - Download comparison JSON for a compatible browser report pair, using the same delta envelope as the offline CLI. Current-report JSON/CSV exports stay unchanged; pending work and cleared/incompatible baselines cannot export a stale delta.
