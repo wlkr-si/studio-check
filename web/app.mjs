@@ -1,6 +1,12 @@
 import { audit, validateOrg } from './audit.mjs';
 import { reportCsv } from './report-csv.mjs';
-import { compareReports, createReportSession } from './report-compare.mjs';
+import { compareReports, createReportSession, parseSavedReport } from './report-compare.mjs';
+
+// Actual complete public wlkr-si audit captured via Codex CLI 0.163.0 / MCP on 2026-11-12.
+// Original UTF-8 JSON: 7904 bytes; SHA-256 18ba9eca859f9e66e9bce9887ef847c97e59db0b62418563be1f1bbfe869442e.
+// This is a dated saved report, never a live audit. Keep source text exact.
+export const PUBLIC_SNAPSHOT_TEXT = "{\n  \"organization\": \"wlkr-si\",\n  \"complete\": true,\n  \"includeArchived\": false,\n  \"excludedArchived\": 0,\n  \"repositories\": [\n    {\n      \"name\": \"wlkr-si/.github\",\n      \"url\": \"https://github.com/wlkr-si/.github\",\n      \"archived\": false,\n      \"fork\": false,\n      \"description\": \"Organisation profile, contribution defaults and studio standards for WLKR.SI.\",\n      \"homepage\": \"https://wlkr.si/contribute\",\n      \"readme\": {\n        \"status\": \"present\",\n        \"source\": \"repository\",\n        \"url\": \"https://github.com/wlkr-si/.github/blob/main/README.md\"\n      },\n      \"license\": {\n        \"declared\": null,\n        \"status\": \"unknown\"\n      },\n      \"community\": {\n        \"contributing\": {\n          \"status\": \"present\",\n          \"source\": \"repository\",\n          \"url\": \"https://github.com/wlkr-si/.github/blob/main/CONTRIBUTING.md\"\n        },\n        \"code_of_conduct\": {\n          \"status\": \"present\",\n          \"source\": \"repository\",\n          \"url\": \"https://github.com/wlkr-si/.github/blob/main/CODE_OF_CONDUCT.md\"\n        },\n        \"issue_template\": {\n          \"status\": \"not-reported\",\n          \"source\": null,\n          \"url\": null\n        },\n        \"pull_request_template\": {\n          \"status\": \"present\",\n          \"source\": \"repository\",\n          \"url\": \"https://github.com/wlkr-si/.github/blob/main/PULL_REQUEST_TEMPLATE.md\"\n        }\n      }\n    },\n    {\n      \"name\": \"wlkr-si/foundation\",\n      \"url\": \"https://github.com/wlkr-si/foundation\",\n      \"archived\": false,\n      \"fork\": false,\n      \"description\": \"Historical WLKR Labs planning and operating records. Current studio: wlkr.si.\",\n      \"homepage\": \"https://wlkr.si\",\n      \"readme\": {\n        \"status\": \"present\",\n        \"source\": \"repository\",\n        \"url\": \"https://github.com/wlkr-si/foundation/blob/main/README.md\"\n      },\n      \"license\": {\n        \"declared\": null,\n        \"status\": \"unknown\"\n      },\n      \"community\": {\n        \"contributing\": {\n          \"status\": \"present\",\n          \"source\": \"organization-default\",\n          \"url\": \"https://github.com/wlkr-si/.github/blob/main/CONTRIBUTING.md\"\n        },\n        \"code_of_conduct\": {\n          \"status\": \"present\",\n          \"source\": \"organization-default\",\n          \"url\": \"https://github.com/wlkr-si/.github/blob/main/CODE_OF_CONDUCT.md\"\n        },\n        \"issue_template\": {\n          \"status\": \"not-reported\",\n          \"source\": null,\n          \"url\": null\n        },\n        \"pull_request_template\": {\n          \"status\": \"present\",\n          \"source\": \"organization-default\",\n          \"url\": \"https://github.com/wlkr-si/.github/blob/main/PULL_REQUEST_TEMPLATE.md\"\n        }\n      }\n    },\n    {\n      \"name\": \"wlkr-si/phosphor\",\n      \"url\": \"https://github.com/wlkr-si/phosphor\",\n      \"archived\": false,\n      \"fork\": false,\n      \"description\": \"A moving picture in a plain terminal, using only ordinary characters, proved by photographing and filming the real window.\",\n      \"homepage\": \"https://wlkr.si/phosphor\",\n      \"readme\": {\n        \"status\": \"present\",\n        \"source\": \"repository\",\n        \"url\": \"https://github.com/wlkr-si/phosphor/blob/main/README.md\"\n      },\n      \"license\": {\n        \"declared\": \"MIT\",\n        \"status\": \"declared\"\n      },\n      \"community\": {\n        \"contributing\": {\n          \"status\": \"present\",\n          \"source\": \"organization-default\",\n          \"url\": \"https://github.com/wlkr-si/.github/blob/main/CONTRIBUTING.md\"\n        },\n        \"code_of_conduct\": {\n          \"status\": \"present\",\n          \"source\": \"organization-default\",\n          \"url\": \"https://github.com/wlkr-si/.github/blob/main/CODE_OF_CONDUCT.md\"\n        },\n        \"issue_template\": {\n          \"status\": \"not-reported\",\n          \"source\": null,\n          \"url\": null\n        },\n        \"pull_request_template\": {\n          \"status\": \"present\",\n          \"source\": \"organization-default\",\n          \"url\": \"https://github.com/wlkr-si/.github/blob/main/PULL_REQUEST_TEMPLATE.md\"\n        }\n      }\n    },\n    {\n      \"name\": \"wlkr-si/starter\",\n      \"url\": \"https://github.com/wlkr-si/starter\",\n      \"archived\": false,\n      \"fork\": false,\n      \"description\": \"Static Astro starter with real WLKR components, local themes and repeatable checks.\",\n      \"homepage\": \"https://starter.wlkr.si\",\n      \"readme\": {\n        \"status\": \"present\",\n        \"source\": \"repository\",\n        \"url\": \"https://github.com/wlkr-si/starter/blob/main/README.md\"\n      },\n      \"license\": {\n        \"declared\": null,\n        \"status\": \"unknown\"\n      },\n      \"community\": {\n        \"contributing\": {\n          \"status\": \"present\",\n          \"source\": \"repository\",\n          \"url\": \"https://github.com/wlkr-si/starter/blob/main/CONTRIBUTING.md\"\n        },\n        \"code_of_conduct\": {\n          \"status\": \"present\",\n          \"source\": \"organization-default\",\n          \"url\": \"https://github.com/wlkr-si/.github/blob/main/CODE_OF_CONDUCT.md\"\n        },\n        \"issue_template\": {\n          \"status\": \"not-reported\",\n          \"source\": null,\n          \"url\": null\n        },\n        \"pull_request_template\": {\n          \"status\": \"present\",\n          \"source\": \"organization-default\",\n          \"url\": \"https://github.com/wlkr-si/.github/blob/main/PULL_REQUEST_TEMPLATE.md\"\n        }\n      }\n    },\n    {\n      \"name\": \"wlkr-si/studio-check\",\n      \"url\": \"https://github.com/wlkr-si/studio-check\",\n      \"archived\": false,\n      \"fork\": false,\n      \"description\": \"Audit an organisation\u2019s public repositories and compare saved reports, in your browser or terminal.\",\n      \"homepage\": \"https://studio-check.wlkr.si\",\n      \"readme\": {\n        \"status\": \"present\",\n        \"source\": \"repository\",\n        \"url\": \"https://github.com/wlkr-si/studio-check/blob/main/README.md\"\n      },\n      \"license\": {\n        \"declared\": \"MIT\",\n        \"status\": \"declared\"\n      },\n      \"community\": {\n        \"contributing\": {\n          \"status\": \"present\",\n          \"source\": \"organization-default\",\n          \"url\": \"https://github.com/wlkr-si/.github/blob/main/CONTRIBUTING.md\"\n        },\n        \"code_of_conduct\": {\n          \"status\": \"present\",\n          \"source\": \"organization-default\",\n          \"url\": \"https://github.com/wlkr-si/.github/blob/main/CODE_OF_CONDUCT.md\"\n        },\n        \"issue_template\": {\n          \"status\": \"not-reported\",\n          \"source\": null,\n          \"url\": null\n        },\n        \"pull_request_template\": {\n          \"status\": \"present\",\n          \"source\": \"organization-default\",\n          \"url\": \"https://github.com/wlkr-si/.github/blob/main/PULL_REQUEST_TEMPLATE.md\"\n        }\n      }\n    },\n    {\n      \"name\": \"wlkr-si/ui\",\n      \"url\": \"https://github.com/wlkr-si/ui\",\n      \"archived\": false,\n      \"fork\": false,\n      \"description\": \"React components, a pixel editor and a contrast checker, with a shadcn-compatible registry.\",\n      \"homepage\": \"https://ui.wlkr.si\",\n      \"readme\": {\n        \"status\": \"present\",\n        \"source\": \"repository\",\n        \"url\": \"https://github.com/wlkr-si/ui/blob/main/README.md\"\n      },\n      \"license\": {\n        \"declared\": null,\n        \"status\": \"unknown\"\n      },\n      \"community\": {\n        \"contributing\": {\n          \"status\": \"present\",\n          \"source\": \"organization-default\",\n          \"url\": \"https://github.com/wlkr-si/.github/blob/main/CONTRIBUTING.md\"\n        },\n        \"code_of_conduct\": {\n          \"status\": \"present\",\n          \"source\": \"organization-default\",\n          \"url\": \"https://github.com/wlkr-si/.github/blob/main/CODE_OF_CONDUCT.md\"\n        },\n        \"issue_template\": {\n          \"status\": \"not-reported\",\n          \"source\": null,\n          \"url\": null\n        },\n        \"pull_request_template\": {\n          \"status\": \"present\",\n          \"source\": \"organization-default\",\n          \"url\": \"https://github.com/wlkr-si/.github/blob/main/PULL_REQUEST_TEMPLATE.md\"\n        }\n      }\n    }\n  ],\n  \"errors\": []\n}\n";
+const SNAPSHOT_NAME = 'wlkr-si snapshot · 2026-11-12 · public MCP audit';
 
 const form = document.querySelector('#audit-form');
 const input = document.querySelector('#organization');
@@ -10,6 +16,8 @@ const status = document.querySelector('#status');
 const results = document.querySelector('#results');
 const openSaved = document.querySelector('#saved-report');
 const session = createReportSession();
+const loadSnapshot = document.querySelector('#load-snapshot');
+let auditController = null;
 
 const sharedOrg = new URL(location.href).searchParams.get('org');
 if (sharedOrg !== null) input.value = sharedOrg;
@@ -150,21 +158,19 @@ function syncControls() {
   else results.removeAttribute('aria-busy');
 }
 
-openSaved.addEventListener('change', async () => {
-  const selected = openSaved.files?.[0];
-  if (!selected || session.state.busy) return;
+async function openCurrentReport(selected, snapshot = false) {
   const opening = session.openCurrent(selected);
   const revision = session.state.generation;
   let failed = false;
   syncControls();
-  status.textContent = 'Opening saved report…';
+  status.textContent = snapshot ? 'Opening snapshot 2026-11-12…' : 'Opening saved report…';
   try {
     if (!await opening) return;
     const current = session.state.current;
     input.value = current.report.organization;
     archived.checked = current.report.includeArchived;
     render(current);
-    status.textContent = 'Saved report opened locally.';
+    status.textContent = snapshot ? 'Snapshot 2026-11-12 opened locally.' : 'Saved report opened locally.';
   } catch (error) {
     if (revision !== session.state.generation) return;
     status.textContent = `${error.message} Reports unchanged.`;
@@ -172,8 +178,22 @@ openSaved.addEventListener('change', async () => {
   } finally {
     if (revision === session.state.generation) openSaved.value = '';
     syncControls();
-    if (failed) openSaved.focus();
+    if (failed) (snapshot ? loadSnapshot : openSaved).focus();
   }
+}
+
+openSaved.addEventListener('change', async () => {
+  const selected = openSaved.files?.[0];
+  if (!selected || session.state.busy) return;
+  await openCurrentReport(selected);
+});
+
+loadSnapshot.addEventListener('click', async () => {
+  // Strictly validate before use, then supersede all pending audit/current/baseline reads.
+  parseSavedReport(PUBLIC_SNAPSHOT_TEXT);
+  auditController?.abort();
+  auditController = null;
+  await openCurrentReport(new File([PUBLIC_SNAPSHOT_TEXT], SNAPSHOT_NAME, { type: 'application/json' }), true);
 });
 
 form.addEventListener('submit', async event => {
@@ -184,7 +204,12 @@ form.addEventListener('submit', async event => {
   catch (error) { status.textContent = error.message; input.focus(); return; }
   input.value = org;
   const includeArchived = archived.checked;
-  const auditing = session.runAudit(() => audit(org, { includeArchived }));
+  const controller = new AbortController();
+  auditController = controller;
+  const auditing = session.runAudit(() => audit(org, { includeArchived, fetchImpl: (url, options) => {
+    controller.signal.throwIfAborted();
+    return fetch(url, { ...options, signal: AbortSignal.any([options.signal, controller.signal]) });
+  } }));
   const revision = session.state.generation;
   let failed = false;
   syncControls();
@@ -202,7 +227,7 @@ form.addEventListener('submit', async event => {
     if (revision !== session.state.generation) return;
     status.textContent = `Audit failed: ${error.message}`;
     failed = true;
-  } finally { syncControls(); if (failed) input.focus(); }
+  } finally { if (auditController === controller) auditController = null; syncControls(); if (failed) input.focus(); }
 });
 
 function renderComparison(report) {
