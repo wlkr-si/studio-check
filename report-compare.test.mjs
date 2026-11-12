@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { audit } from './web/audit.mjs';
-import { parseSavedReport, validateReport, compareReports, MAX_REPORT_BYTES, MAX_REPOSITORIES } from './web/report-compare.mjs';
+import { parseSavedReport, validateReport, compareReports, MAX_REPORT_BYTES, MAX_REPOSITORIES, readReportFile, createReportSession } from './web/report-compare.mjs';
 const state = (status = 'unknown', source = null, url = null) => ({ status, source, url });
 export function fixture() {
   return { organization: 'demo', complete: true, includeArchived: false, excludedArchived: 0, errors: [], repositories: [{ name: 'demo/tool', url: 'https://github.com/demo/tool', archived: false, fork: false, description: 'A tool', homepage: null, readme: state(), license: { declared: null, status: 'unknown' }, community: Object.fromEntries(['contributing', 'code_of_conduct', 'issue_template', 'pull_request_template'].map(key => [key, state()])) }] };
@@ -109,4 +109,124 @@ test('compares inventory states rather than file contents, URLs or JSON key orde
 test('identifies current-report bounds separately from imported-file errors', () => {
   const current = fixture(); current.repositories = Array(MAX_REPOSITORIES + 1).fill(current.repositories[0]);
   assert.throws(() => compareReports(fixture(), current), /Current audit cannot be compared/);
+});
+
+
+const savedFile = (report = fixture(), name = 'report.json') => new File([JSON.stringify(report)], name, { type: 'application/json' });
+const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
+const delayedFile = (wait, report = fixture()) => ({ name: 'delayed.json', size: 100, arrayBuffer: async () => { await wait.promise; return savedFile(report).arrayBuffer(); } });
+
+test('selected files are bounded before reading and strictly decode UTF-8 and exact schema', async () => {
+  const report = fixture();
+  assert.deepEqual(await readReportFile(savedFile(report)), report);
+  let reads = 0;
+  for (const size of [MAX_REPORT_BYTES + 1, -1, Infinity, NaN]) {
+    await assert.rejects(readReportFile({ size, arrayBuffer() { reads++; } }), /5 MiB/);
+  }
+  assert.equal(reads, 0);
+  await assert.rejects(readReportFile({ size: 0, async arrayBuffer() { return new ArrayBuffer(MAX_REPORT_BYTES + 1); } }), /5 MiB/);
+  await assert.rejects(readReportFile(new File([new Uint8Array([0xff])], 'bad.json')), /UTF-8/);
+  await assert.rejects(readReportFile(new File(['{'], 'bad.json')), /not valid JSON/);
+  await assert.rejects(readReportFile({ size: 1, async arrayBuffer() { throw new Error('secret path'); } }), /^Error: Saved report could not be read\.$/);
+});
+
+test('offline current and baseline imports retain exact report data and separate saved origin', async () => {
+  const session = createReportSession(), current = fixture(), before = fixture();
+  before.repositories[0].description = 'Before';
+  current.repositories[0].community.contributing = state('present', 'organization-default', 'https://github.com/demo/.github/CONTRIBUTING.md');
+  assert.equal(await session.openCurrent(savedFile(current, '<img>.json')), true);
+  assert.deepEqual(session.state.current, { report: current, origin: { kind: 'saved', name: '<img>.json' } });
+  await session.openBaseline(savedFile(before));
+  assert.equal(compareReports(session.state.baseline.report, session.state.current.report).changes.length, 1);
+  assert.deepEqual(current, session.state.current.report);
+  session.clearBaseline();
+  assert.equal(session.state.baseline, null);
+  assert.deepEqual(session.state.current.report, current);
+  await session.openCurrent(savedFile(current, 'x'.repeat(1000)));
+  assert.equal(session.state.current.origin.name.length, 200);
+});
+
+test('malformed or incompatible imports leave both committed reports intact', async () => {
+  const session = createReportSession();
+  await assert.rejects(session.openBaseline(savedFile()), /before choosing a baseline/);
+  await session.openCurrent(savedFile());
+  await session.openBaseline(savedFile());
+  const { current, baseline } = session.state;
+  const otherOrg = fixture(); otherOrg.organization = 'other'; otherOrg.repositories = [];
+  const otherMode = fixture(); otherMode.includeArchived = true;
+  for (const file of [new File(['{'], 'bad'), savedFile(otherOrg), savedFile(otherMode)]) {
+    for (const open of [() => session.openCurrent(file), () => session.openBaseline(file)]) {
+      await assert.rejects(open());
+      assert.equal(session.state.current, current);
+      assert.equal(session.state.baseline, baseline);
+      assert.equal(session.state.busy, null);
+    }
+  }
+});
+
+test('partial offline reports preserve unconfirmed membership and failed audits preserve both reports', async () => {
+  const session = createReportSession(), partial = fixture();
+  partial.complete = false; partial.repositories = []; partial.errors = ['Network failure'];
+  await session.openCurrent(savedFile(partial));
+  await session.openBaseline(savedFile());
+  const { current, baseline } = session.state;
+  const diff = compareReports(baseline.report, current.report);
+  assert.equal(diff.membershipConfirmed, false);
+  assert.equal(diff.changes[0].membership, 'Only in saved report (unconfirmed)');
+  await assert.rejects(session.runAudit(async () => { throw new Error('offline'); }), /offline/);
+  assert.equal(session.state.current, current);
+  assert.equal(session.state.baseline, baseline);
+  const live = fixture(); live.organization = 'new'; live.repositories = [];
+  await session.runAudit(async () => live);
+  assert.deepEqual(session.state.current.origin, { kind: 'audit' });
+  assert.equal(session.state.baseline, baseline);
+  assert.throws(() => compareReports(baseline.report, session.state.current.report), /different organizations/);
+});
+
+test('late current import cannot overwrite a newer audit or release its busy state', async () => {
+  const session = createReportSession(), read = deferred(), auditResult = deferred();
+  const old = session.openCurrent(delayedFile(read));
+  const fresh = session.runAudit(() => auditResult.promise);
+  read.resolve();
+  assert.equal(await old, false);
+  assert.equal(session.state.busy, 'audit');
+  auditResult.resolve(fixture());
+  assert.equal(await fresh, true);
+  assert.equal(session.state.current.origin.kind, 'audit');
+});
+
+test('late audit success or failure cannot overwrite an opened saved report', async () => {
+  for (const fail of [false, true]) {
+    const session = createReportSession(), wait = deferred();
+    const old = session.runAudit(() => wait.promise);
+    await session.openCurrent(savedFile());
+    if (fail) wait.reject(new Error('late network failure')); else wait.resolve(fixture());
+    assert.equal(await old, false);
+    assert.equal(session.state.current.origin.kind, 'saved');
+    assert.equal(session.state.busy, null);
+  }
+});
+
+test('clearing or replacing reports invalidates pending baseline imports', async () => {
+  for (const clear of [false, true]) {
+    const session = createReportSession(), wait = deferred();
+    await session.openCurrent(savedFile());
+    const old = session.openBaseline(delayedFile(wait));
+    if (clear) session.clearBaseline(); else await session.openCurrent(savedFile());
+    wait.resolve();
+    assert.equal(await old, false);
+    assert.equal(session.state.baseline, null);
+  }
+});
+
+test('a rejected newer import still invalidates earlier valid reads and retains last committed pair', async () => {
+  const session = createReportSession(), wait = deferred();
+  await session.openCurrent(savedFile()); await session.openBaseline(savedFile());
+  const { current, baseline } = session.state;
+  const old = session.openCurrent(delayedFile(wait));
+  await assert.rejects(session.openCurrent(new File(['null'], 'bad')));
+  wait.resolve();
+  assert.equal(await old, false);
+  assert.equal(session.state.current, current); assert.equal(session.state.baseline, baseline);
+  assert.equal(session.state.busy, null);
 });

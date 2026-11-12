@@ -94,3 +94,55 @@ export function compareReports(baseline, current) {
   }
   return { baselineComplete: baseline.complete, currentComplete: current.complete, membershipConfirmed, changes };
 }
+
+/** Read only a selected File's bounded bytes; never follow metadata URLs. */
+export async function readReportFile(file) {
+  if (!file || !Number.isSafeInteger(file.size) || file.size < 0 || file.size > MAX_REPORT_BYTES) throw new Error('Saved report exceeds the 5 MiB limit.');
+  let buffer;
+  try { buffer = await file.arrayBuffer(); }
+  catch { throw new Error('Saved report could not be read.'); }
+  if (!(buffer instanceof ArrayBuffer) || buffer.byteLength > MAX_REPORT_BYTES) throw new Error('Saved report exceeds the 5 MiB limit.');
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(buffer); }
+  catch { throw new Error('Saved report must be UTF-8 JSON.'); }
+  return parseSavedReport(text);
+}
+
+/** In-memory transactions shared by the browser and controlled async tests. */
+export function createReportSession() {
+  let current = null, baseline = null, busy = null, generation = 0;
+  const name = file => typeof file.name === 'string' ? file.name.slice(0, 200) : 'Saved report';
+  async function operation(kind, read, commit) {
+    const revision = ++generation;
+    busy = kind;
+    try {
+      const value = await read();
+      if (revision !== generation) return false;
+      commit(value);
+      return true;
+    } catch (error) {
+      if (revision !== generation) return false;
+      throw error;
+    } finally { if (revision === generation) busy = null; }
+  }
+  return {
+    get state() { return { current, baseline, busy, generation }; },
+    openCurrent(file) {
+      return operation('current', () => readReportFile(file), report => {
+        if (baseline) compareReports(baseline.report, report);
+        current = { report, origin: { kind: 'saved', name: name(file) } };
+      });
+    },
+    openBaseline(file) {
+      return operation('baseline', () => readReportFile(file), report => {
+        if (!current) throw new Error('Open or audit a current report before choosing a baseline.');
+        compareReports(report, current.report);
+        baseline = { report, name: name(file) };
+      });
+    },
+    runAudit(read) {
+      return operation('audit', read, report => { current = { report, origin: { kind: 'audit' } }; });
+    },
+    clearBaseline() { generation++; busy = null; baseline = null; },
+  };
+}

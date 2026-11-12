@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.0 - 2026-11-12
+
+- Open a saved current JSON report in the browser and compare a baseline entirely locally, without first auditing GitHub. Saved origins remain visible and full JSON/CSV downloads retain the report data.
+- Invalid imports preserve both reports; bounded strict file reads and guarded asynchronous state prevent stale imports and audits from replacing newer results.
+
 ## 0.9.0 - 2026-11-12
 
 - Added an optional stdio MCP server with a single bounded, read-only public organization audit tool. The existing browser, CLI, and shared audit core remain dependency-free and unchanged.
