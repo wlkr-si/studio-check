@@ -54,7 +54,7 @@ python3 -m http.server 8000 --bind 127.0.0.1 --directory web
 
 Open `http://127.0.0.1:8000`. Enter a GitHub organization and choose **Audit**. The form defaults to `wlkr-si`; loading the page never starts an audit. The `?org=` query preserves the form value for sharing. JSON is downloadable after an actual result. The browser uses the same audit core as the CLI, excludes archived repositories, and has no account, saved history, analytics, backend, or installation. It does not open homepage or metadata-provided links.
 
-The browser sends requests directly to GitHub without credentials or a custom User-Agent. GitHub's public API rate limits and CORS rules apply to the visitor's network. Modern browsers with ES modules, native fetch, and `AbortSignal.timeout` are required. Opening the HTML as a `file:` URL is unsupported; use HTTP. The browser does not offer the CLI's archived-repository option.
+The browser sends requests directly to GitHub without credentials or a custom User-Agent. GitHub's public API rate limits and CORS rules apply to the visitor's network. Modern browsers with ES modules, native fetch, and `AbortSignal.timeout` are required. Opening the HTML as a `file:` URL is unsupported; use HTTP. Choose **Include archived** to mirror the CLI’s `--include-archived` option. The shareable URL retains that choice as `archived=1`, and the downloaded report records the selected mode.
 
 The public app is [studio-check.wlkr.si](https://studio-check.wlkr.si). Its static response headers include `no-transform`, which prevents automatic proxy script injection; this keeps the deployed HTML identical to the committed app. No account-wide analytics setting is changed.
 

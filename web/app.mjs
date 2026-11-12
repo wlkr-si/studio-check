@@ -3,12 +3,14 @@ import { audit, validateOrg } from './audit.mjs';
 const form = document.querySelector('#audit-form');
 const input = document.querySelector('#organization');
 const button = document.querySelector('#audit-button');
+const archived = document.querySelector('#include-archived');
 const status = document.querySelector('#status');
 const results = document.querySelector('#results');
 let pending = false;
 
 const sharedOrg = new URL(location.href).searchParams.get('org');
 if (sharedOrg !== null) input.value = sharedOrg;
+archived.checked = new URL(location.href).searchParams.get('archived') === '1';
 
 function element(tag, value, className) {
   const node = document.createElement(tag);
@@ -90,6 +92,8 @@ form.addEventListener('submit', async event => {
   pending = true;
   input.value = org;
   input.readOnly = true;
+  const includeArchived = archived.checked;
+  archived.disabled = true;
   button.disabled = true;
   button.textContent = 'Auditing…';
   results.hidden = true;
@@ -97,9 +101,11 @@ form.addEventListener('submit', async event => {
   status.textContent = `Auditing ${org}…`;
   const url = new URL(location.href);
   url.searchParams.set('org', org);
+  if (includeArchived) url.searchParams.set('archived', '1');
+  else url.searchParams.delete('archived');
   history.replaceState(null, '', url);
   try {
-    const report = await audit(org);
+    const report = await audit(org, { includeArchived });
     render(report);
     status.textContent = report.complete ? `${org} audit complete.` : `${org} audit incomplete. Unknown results are not missing files.`;
   } catch (error) {
@@ -108,6 +114,7 @@ form.addEventListener('submit', async event => {
   } finally {
     pending = false;
     input.readOnly = false;
+    archived.disabled = false;
     button.disabled = false;
     button.textContent = 'Audit';
     results.removeAttribute('aria-busy');
