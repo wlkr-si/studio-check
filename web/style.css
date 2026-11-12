@@ -23,7 +23,7 @@ a:hover { text-decoration-thickness: 2px; }
 .result-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 12px 24px; padding-bottom: 20px; }
 h2 { font-size: 1.25rem; font-weight: 600; letter-spacing: -.025em; margin: 0; }
 .complete { color: var(--green); }
-.download { min-height: 36px; padding: 6px 10px; color: inherit; background: transparent; font-size: .8125rem; font-weight: 500; }
+.download { min-height: 44px; padding: 6px 10px; color: inherit; background: transparent; font-size: .8125rem; font-weight: 500; }
 .summary { flex-basis: 100%; color: var(--muted); font-size: .875rem; margin: 0; }
 .repository { border-top: 1px solid var(--line); padding: 24px 0; }
 h3 { margin: 0 0 10px; font-size: 1.125rem; font-weight: 600; letter-spacing: -.025em; overflow-wrap: anywhere; }
@@ -60,3 +60,5 @@ nav { display: flex; gap: 24px; font-size: .8125rem; color: var(--muted); }
 [hidden] { display: none !important; }
 .report-filter { max-width: 560px; margin: 4px 0 24px; }
 .report-filter .summary { margin-top: 12px; }
+
+.download-actions { display: flex; flex-wrap: wrap; gap: 8px; }

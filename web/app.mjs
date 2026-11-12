@@ -1,4 +1,5 @@
 import { audit, validateOrg } from './audit.mjs';
+import { reportCsv } from './report-csv.mjs';
 
 const form = document.querySelector('#audit-form');
 const input = document.querySelector('#organization');
@@ -29,17 +30,24 @@ function render(report) {
   const heading = element('h2', report.complete ? 'Audit complete' : 'Audit incomplete', report.complete ? 'complete' : '');
   heading.tabIndex = -1;
   header.append(heading);
-  const download = element('button', 'Download JSON', 'download');
-  download.type = 'button';
-  download.addEventListener('click', () => {
-    const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2) + '\n'], { type: 'application/json' }));
-    const link = element('a');
-    link.href = url;
-    link.download = `${report.organization}-studio-check.json`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  });
-  header.append(download, element('p', `${report.organization} · ${report.repositories.length} public repositories · ${report.excludedArchived} archived excluded`, 'summary'));
+  const downloads = element('div', undefined, 'download-actions');
+  for (const { extension, mime, content } of [
+    { extension: 'json', mime: 'application/json', content: () => JSON.stringify(report, null, 2) + '\n' },
+    { extension: 'csv', mime: 'text/csv;charset=utf-8', content: () => reportCsv(report) },
+  ]) {
+    const download = element('button', `Download ${extension.toUpperCase()}`, 'download');
+    download.type = 'button';
+    download.addEventListener('click', () => {
+      const url = URL.createObjectURL(new Blob([content()], { type: mime }));
+      const link = element('a');
+      link.href = url;
+      link.download = `${report.organization}-studio-check.${extension}`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+    downloads.append(download);
+  }
+  header.append(downloads, element('p', `${report.organization} · ${report.repositories.length} public repositories · ${report.excludedArchived} archived excluded`, 'summary'));
   results.append(header);
   if (report.errors.length) {
     const details = element('details', undefined, 'errors');
