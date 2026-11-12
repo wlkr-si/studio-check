@@ -1,12 +1,13 @@
 import assert from "node:assert/strict"
 import process from "node:process"
+import { fileURLToPath } from "node:url"
 import test from "node:test"
 import { Client as LegacyClient } from "@modelcontextprotocol/sdk/client/index.js"
 import { StdioClientTransport as LegacyTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { Client as ModernClient } from "@modelcontextprotocol/client"
 import { StdioClientTransport as ModernTransport } from "@modelcontextprotocol/client/stdio"
 
-const mcpDir = new URL(".", import.meta.url)
+const mcpDir = fileURLToPath(new URL(".", import.meta.url))
 const emptyState = () => ({ status: "not-reported", source: null, url: null })
 const fixtureProgram = `
 import { createMcpServer } from "./index.mjs"
@@ -88,7 +89,7 @@ function connectClient(Client, Transport, modern) {
   const transport = new Transport({
     command: process.execPath,
     args: ["--input-type=module", "-e", fixtureProgram],
-    cwd: mcpDir.pathname,
+    cwd: mcpDir,
     env: { PATH: process.env.PATH ?? "" },
     stderr: "pipe",
     maxBufferSize: 65536,
