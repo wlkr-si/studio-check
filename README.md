@@ -30,7 +30,7 @@ Run it from a checkout or package copy with Node.js 24 or newer:
 ```sh
 cd mcp
 npm ci --omit=dev
-npm start
+node index.mjs
 ```
 
 For the offline fixture tests, install the test-only official clients and run:
@@ -40,7 +40,7 @@ npm ci
 npm test
 ```
 
-Register the command and its mcp/ working directory with an MCP client that supports MCP stdio. The adapter serves both the 2025-11-25 protocol and the modern 2026-07-28 protocol. Interoperability was verified with the official TypeScript SDK client 1.32.2 on 2025-11-25 and official client 2.4.0 pinned to 2026-07-28. Other clients are not qualified. Adapter tests passed on Node 24.22.3 (official archive SHA-256 verified) and 26.8.2.
+Register `node` with argument `index.mjs` and the `mcp/` working directory in an MCP client that supports stdio. This direct command keeps npm startup banners out of protocol stdout. The adapter serves both the 2025-11-25 protocol and the modern 2026-07-28 protocol. Interoperability was verified with the official TypeScript SDK client 1.32.2 on 2025-11-25 and official client 2.4.0 pinned to 2026-07-28. Other clients are not qualified. Adapter tests passed on Node 24.22.3 (official archive SHA-256 verified) and 26.8.2.
 
 `audit_public_org` accepts a GitHub organization name and optional includeArchived boolean. It uses unauthenticated public API requests only. Each audit is limited to two repository pages (at most 200 listed repositories), 256 requests, 512 KiB per response, and 8 MiB across responses. At most two operations run concurrently across both tools. The returned report is capped at 1 MiB; if repository rows must be omitted, complete becomes false and an error explains the truncation. API failures and these limits remain visible as incomplete results. Cancellation is passed through to active requests, and stdin EOF closes the server.
 
