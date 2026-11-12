@@ -4,6 +4,8 @@
 
 See what a developer can discover about an organization's public GitHub repositories.
 
+[Run the browser audit](https://studio-check.wlkr.si) · [Use the CLI](#run)
+
 ## Run
 
 Requires Node.js 24 or newer. No dependencies, installation, token, or account access.
@@ -53,6 +55,8 @@ python3 -m http.server 8000 --bind 127.0.0.1 --directory web
 Open `http://127.0.0.1:8000`. Enter a GitHub organization and choose **Audit**. The form defaults to `wlkr-si`; loading the page never starts an audit. The `?org=` query preserves the form value for sharing. JSON is downloadable after an actual result. The browser uses the same audit core as the CLI, excludes archived repositories, and has no account, saved history, analytics, backend, or installation. It does not open homepage or metadata-provided links.
 
 The browser sends requests directly to GitHub without credentials or a custom User-Agent. GitHub's public API rate limits and CORS rules apply to the visitor's network. Modern browsers with ES modules, native fetch, and `AbortSignal.timeout` are required. Opening the HTML as a `file:` URL is unsupported; use HTTP. The browser does not offer the CLI's archived-repository option.
+
+The public app is [studio-check.wlkr.si](https://studio-check.wlkr.si). Its static response headers include `no-transform`, which prevents automatic proxy script injection; this keeps the deployed HTML identical to the committed app. No account-wide analytics setting is changed.
 
 `wrangler.jsonc` describes static assets only, with no Worker runtime, functions, domain routes, or paid bindings. The `web` directory is the entire deployable artifact; keep source tests, git metadata, credentials, and fixture files outside it. Provider costs and domain setup must be checked separately before a deployment. Nothing in the run/check commands deploys or publishes the app.
 
