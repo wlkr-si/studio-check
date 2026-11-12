@@ -230,3 +230,48 @@ test('a rejected newer import still invalidates earlier valid reads and retains 
   assert.equal(session.state.current, current); assert.equal(session.state.baseline, baseline);
   assert.equal(session.state.busy, null);
 });
+
+
+test('comparison export is absent without a valid pair and unavailable during every pending operation', async () => {
+  const session = createReportSession();
+  assert.equal(session.comparison(), null);
+  await session.openCurrent(savedFile());
+  assert.equal(session.comparison(), null);
+  await session.openBaseline(savedFile());
+  const expected = session.comparison();
+  assert.equal(expected.membershipConfirmed, true);
+  for (const kind of ['current', 'baseline', 'audit']) {
+    const wait = deferred();
+    const pending = kind === 'current' ? session.openCurrent(delayedFile(wait)) : kind === 'baseline' ? session.openBaseline(delayedFile(wait)) : session.runAudit(() => wait.promise);
+    assert.equal(session.comparison(), null);
+    wait.resolve(fixture()); await pending;
+    assert.deepEqual(session.comparison(), expected);
+  }
+  await assert.rejects(session.openBaseline(new File(['null'], 'invalid')));
+  assert.deepEqual(session.comparison(), expected);
+  session.clearBaseline();
+  assert.equal(session.comparison(), null);
+});
+
+test('comparison export cannot retain cleared or incompatible pairs after delayed and cancelled work', async () => {
+  const session = createReportSession();
+  await session.openCurrent(savedFile()); await session.openBaseline(savedFile());
+  const wait = deferred(), pending = session.openBaseline(delayedFile(wait));
+  session.clearBaseline(); wait.resolve();
+  assert.equal(await pending, false); assert.equal(session.comparison(), null);
+  await session.openBaseline(savedFile());
+  for (const change of [r => { r.organization = 'other'; r.repositories = []; }, r => { r.includeArchived = true; }]) {
+    const incompatible = fixture(); change(incompatible);
+    await session.runAudit(async () => incompatible);
+    assert.equal(session.comparison(), null);
+    await session.openCurrent(savedFile());
+    assert.equal(session.comparison().membershipConfirmed, true);
+  }
+  const old = deferred(), newer = deferred();
+  const oldAudit = session.runAudit(() => old.promise);
+  const newCurrent = session.openCurrent(delayedFile(newer));
+  old.resolve(fixture()); assert.equal(await oldAudit, false);
+  assert.equal(session.comparison(), null);
+  newer.resolve(); await newCurrent;
+  assert.equal(session.comparison().membershipConfirmed, true);
+});

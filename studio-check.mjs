@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { pathToFileURL } from 'node:url';
 import { audit, validateOrg } from './web/audit.mjs';
-import { compareReports } from './web/report-compare.mjs';
+import { comparisonReport } from './web/report-compare.mjs';
 import { readSavedReport } from './read-saved-report.mjs';
 export { audit } from './web/audit.mjs';
 
@@ -94,8 +94,8 @@ export async function main(args, { stdout = console.log, stderr = console.error,
     try {
       const baseline = await readSavedReport(parsed.paths[0], 'Saved');
       const current = await readSavedReport(parsed.paths[1], 'Current');
-      const comparison = compareReports(baseline, current);
-      stdout(parsed.json ? JSON.stringify({ organization: current.organization, includeArchived: current.includeArchived, ...comparison }, null, 2).replace(/[\x7f-\x9f]/g, char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0')) : formatComparison(current.organization, current.includeArchived, comparison));
+      const comparison = comparisonReport(baseline, current);
+      stdout(parsed.json ? JSON.stringify(comparison, null, 2).replace(/[\x7f-\x9f]/g, char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0')) : formatComparison(current.organization, current.includeArchived, comparison));
       return comparison.membershipConfirmed ? 0 : 2;
     } catch (error) { stderr(safe(error.message)); return 1; }
   }

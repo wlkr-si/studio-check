@@ -95,6 +95,12 @@ export function compareReports(baseline, current) {
   return { baselineComplete: baseline.complete, currentComplete: current.complete, membershipConfirmed, changes };
 }
 
+/** The same report-delta envelope used by the offline CLI and browser export. */
+export function comparisonReport(baseline, current) {
+  const comparison = compareReports(baseline, current);
+  return { organization: current.organization, includeArchived: current.includeArchived, ...comparison };
+}
+
 /** Read only a selected File's bounded bytes; never follow metadata URLs. */
 export async function readReportFile(file) {
   if (!file || !Number.isSafeInteger(file.size) || file.size < 0 || file.size > MAX_REPORT_BYTES) throw new Error('Saved report exceeds the 5 MiB limit.');
@@ -127,6 +133,11 @@ export function createReportSession() {
   }
   return {
     get state() { return { current, baseline, busy, generation }; },
+    comparison() {
+      if (busy || !current || !baseline) return null;
+      try { return comparisonReport(baseline.report, current.report); }
+      catch { return null; } // An audit may have changed organization or archive mode.
+    },
     openCurrent(file) {
       return operation('current', () => readReportFile(file), report => {
         if (baseline) compareReports(baseline.report, report);

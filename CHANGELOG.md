@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.0 - 2026-11-12
+
+- Download comparison JSON for a compatible browser report pair, using the same delta envelope as the offline CLI. Current-report JSON/CSV exports stay unchanged; pending work and cleared/incompatible baselines cannot export a stale delta.
+
 ## 0.10.0 - 2026-11-12
 
 - Open a saved current JSON report in the browser and compare a baseline entirely locally, without first auditing GitHub. Saved origins remain visible and full JSON/CSV downloads retain the report data.
