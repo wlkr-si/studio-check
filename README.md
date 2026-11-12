@@ -39,7 +39,7 @@ Exit codes:
 
 ```sh
 node --check studio-check.mjs
-node --test studio-check.test.mjs
+node --test *.test.mjs
 ```
 
 Tests inject an in-memory fetch fixture and never call GitHub or create disk fixtures.
@@ -52,7 +52,7 @@ Serve the `web` directory with any static HTTP server. For example, if Python 3 
 python3 -m http.server 8000 --bind 127.0.0.1 --directory web
 ```
 
-Open `http://127.0.0.1:8000`. Enter a GitHub organization and choose **Audit**. The form defaults to `wlkr-si`; loading the page never starts an audit. The `?org=` query preserves the form value for sharing. JSON is downloadable after an actual result. Filter a finished report by repository name or description; words match together regardless of case or accents. Filtering runs locally without further API requests. The JSON download always contains the complete audit, including repositories hidden by the filter. The browser uses the same audit core as the CLI, excludes archived repositories by default, and has no account, saved history, analytics, backend, or installation. It does not open homepage or metadata-provided links.
+Open `http://127.0.0.1:8000`. Enter a GitHub organization and choose **Audit**. The form defaults to `wlkr-si`; loading the page never starts an audit. The `?org=` query preserves the form value for sharing. JSON and spreadsheet-ready CSV are downloadable after an actual result. Filter a finished report by repository name or description; words match together regardless of case or accents. Filtering runs locally without further API requests. Both downloads always contain the complete audit, including repositories hidden by the filter. CSV retains completeness, archive mode, request errors, unknown states and organization defaults. It prefixes formula-like metadata cells with an apostrophe for spreadsheet use; JSON preserves the original values. CSV uses UTF-8 with a byte-order mark and quoted CRLF records. An empty report retains its audit context with blank repository fields. The browser uses the same audit core as the CLI, excludes archived repositories by default, and has no account, saved history, analytics, backend, or installation. It does not open homepage or metadata-provided links.
 
 The browser sends requests directly to GitHub without credentials or a custom User-Agent. GitHub's public API rate limits and CORS rules apply to the visitor's network. Modern browsers with ES modules, native fetch, and `AbortSignal.timeout` are required. Opening the HTML as a `file:` URL is unsupported; use HTTP. Choose **Include archived** to mirror the CLI’s `--include-archived` option. The shareable URL retains that choice as `archived=1`, and the downloaded report records the selected mode.
 
@@ -66,7 +66,8 @@ Validate source syntax and the shared behavior before publishing:
 node --check studio-check.mjs
 node --check web/audit.mjs
 node --check web/app.mjs
-node --test studio-check.test.mjs
+node --check web/report-csv.mjs
+node --test *.test.mjs
 ```
 
 For browser verification, serve `web`, confirm no API request happens before **Audit**, run an audit, and check complete, incomplete, empty, and rate-limit results. Check keyboard focus and a 320px viewport. Public descriptions must render as text, including strings resembling HTML; repository links must stay on `github.com`. Browser results are live public metadata, not bundled demo results.
