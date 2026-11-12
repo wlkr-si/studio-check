@@ -52,6 +52,20 @@ Exit codes:
 - `1`: invalid arguments.
 - `2`: incomplete report because of an API, network, or profile availability error. JSON includes `complete: false` and `errors`; repositories collected before a pagination failure remain in the report.
 
+## Guarded static publication
+
+From a clean main checkout on the release machine, run this with Node 26.8.2 and the existing Wrangler 4.153.0 executable on PATH:
+
+    node release.mjs
+
+The command runs the repository syntax and behavior checks, snapshots only the six tracked served files plus _headers, and adds a public build-info.json receipt in the temporary upload directory. Tests stay outside the upload; generated files do not change the tracked web/ source.
+
+Before uploading, it captures the active 100-percent deployment and verifies every public asset and the no-transform/nosniff headers. The first receipt-less release accepts only the pinned migration source hashes; later receipts must match an accepted release tag and its committed bytes. It uploads the snapshot as an inactive version, verifies the source and deployment again, activates only that version, then checks the receipt and all six asset hashes from the public host. A failed owned activation is reconciled and restored to the prior version only after a fresh deployment-ID check; foreign or uncertain states stop without another write. The command does not read credentials itself; Wrangler uses its caller-provided authentication environment.
+
+The publisher binds every uploaded file, including headers and configuration, to a regular-file Git blob in the declared commit. It checks the closed snapshot before and after upload, rejects changed or extra artifacts, and permits only the qualified static-only configuration. Public verification rereads the receipt after checking all six assets. Reconciliation and restoration compare against the exact baseline captured before upload, including the explicitly pinned first migration where the public receipt is absent; a different valid receipt cannot count as restoration.
+
+Cloudflare does not provide atomic compare-and-swap for deployment activation. The publisher checks deployment identity immediately before each write and stops if an intervening deployment is observed, but a separate publisher can still race between that check and the provider write. In an uncertain race, inspect provider state before retrying.
+
 ## Checks
 
 ```sh
@@ -62,7 +76,7 @@ node --test *.test.mjs
 
 Audit tests inject an in-memory fetch fixture and never call GitHub. Offline CLI tests use task-owned temporary files, real process entry points, FIFO/device rejection and a fetch guard; fixtures are removed after each test.
 
-All 46 tests passed on Linux with Node 24.22.3 and Node 26.8.2, and on macOS with Node 26.5.0. The Node 24 run used the official Linux x64 distribution with its published SHA-256 checksum verified. The macOS run used the same committed CLI, reader, shared modules and tests without installing dependencies. These are the qualified runtime combinations; native file flags and filesystem behavior still apply.
+The 46 audit, CSV and saved-report comparison checks passed on Linux with Node 24.22.3 and Node 26.8.2, and on macOS with Node 26.5.0. The Node 24 run used the official Linux x64 distribution with its published SHA-256 checksum verified. The macOS run used the same committed CLI, reader, shared modules and tests without installing dependencies. These are the qualified runtime combinations; native file flags and filesystem behavior still apply.
 
 ## Browser app
 
@@ -76,7 +90,7 @@ Open `http://127.0.0.1:8000`. Enter a GitHub organization and choose **Audit**. 
 
 The browser sends requests directly to GitHub without credentials or a custom User-Agent. GitHub's public API rate limits and CORS rules apply to the visitor's network. Modern browsers with ES modules, native fetch, and `AbortSignal.timeout` are required. Opening the HTML as a `file:` URL is unsupported; use HTTP. Choose **Include archived** to mirror the CLI’s `--include-archived` option. The shareable URL retains that choice as `archived=1`, and the downloaded report records the selected mode.
 
-The public app is [studio-check.wlkr.si](https://studio-check.wlkr.si). Its static response headers include `no-transform`, which prevents automatic proxy script injection; this keeps the deployed HTML identical to the committed app. No account-wide analytics setting is changed.
+The public app is [studio-check.wlkr.si](https://studio-check.wlkr.si). Its canonical URL and social preview always identify the tool and never include the shared organization query. Static response headers include `no-transform`, which prevents automatic proxy script injection; this keeps the deployed HTML identical to the committed app. No account-wide analytics setting is changed.
 
 `wrangler.jsonc` describes static assets only, with no Worker runtime, functions, domain routes, or paid bindings. The `web` directory is the entire deployable artifact; keep source tests, git metadata, credentials, and fixture files outside it. Provider costs and domain setup must be checked separately before a deployment. Nothing in the run/check commands deploys or publishes the app.
 
