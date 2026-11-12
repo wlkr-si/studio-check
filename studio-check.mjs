@@ -1,22 +1,26 @@
 #!/usr/bin/env node
 import { pathToFileURL } from 'node:url';
 import { audit, validateOrg } from './web/audit.mjs';
+import { reportMarkdown } from './web/report-csv.mjs';
 import { comparisonReport } from './web/report-compare.mjs';
 import { readSavedReport } from './read-saved-report.mjs';
 export { audit } from './web/audit.mjs';
 
-export const HELP = `Usage: node studio-check.mjs <organization> [--json] [--include-archived]
+export const HELP = `Usage: node studio-check.mjs <organization> [--json | --markdown] [--include-archived]
        node studio-check.mjs --compare <before.json> <after.json> [--json]
 
 Audit public GitHub repository descriptions, README files, declared licenses,
 and community files. Homepage is optional. No token or installation needed.
 
   --json              Print a structured report
+  --markdown          Print an audit report for a Markdown attachment
   --include-archived  Include archived public repositories
   --help              Show this help
 
 Exit codes: 0 complete, 1 invalid arguments, 2 incomplete/API failure.
-Missing metadata is a finding, not a command failure.
+Unknown and not-reported metadata are findings, not command failures.
+--json and --markdown are mutually exclusive. Markdown is audit-only;
+--compare keeps its existing human/JSON formats.
 
 --compare is offline: read only the two named regular UTF-8 JSON files.
 No network, credentials or writes. Max 5 MiB/5,000 repositories per report.
@@ -45,14 +49,16 @@ export function parseArgs(args) {
     if (paths.length !== 2 || paths.some(path => !path)) throw new Error('Supply exactly two report filenames after --compare.');
     return { mode: 'compare', paths, json };
   }
-  const options = { json: false, includeArchived: false };
+  const options = { json: false, markdown: false, includeArchived: false };
   for (const arg of args) {
     if (arg === '--json') options.json = true;
+    else if (arg === '--markdown') options.markdown = true;
     else if (arg === '--include-archived') options.includeArchived = true;
     else if (arg.startsWith('-')) throw new Error(`Unknown option: ${arg}`);
     else if (options.org) throw new Error('Supply exactly one organization.');
     else options.org = arg;
   }
+  if (options.json && options.markdown) throw new Error('Choose either --json or --markdown.');
   validateOrg(options.org);
   return options;
 }
@@ -100,7 +106,10 @@ export async function main(args, { stdout = console.log, stderr = console.error,
     } catch (error) { stderr(safe(error.message)); return 1; }
   }
   const report = await audit(parsed.org, { ...options, includeArchived: parsed.includeArchived });
-  stdout(parsed.json ? JSON.stringify(report, null, 2) : formatReport(report));
+  if (parsed.markdown) {
+    try { stdout(reportMarkdown(report, { origin: { kind: 'audit' } })); }
+    catch (error) { stderr(safe(error.message)); return 1; }
+  } else stdout(parsed.json ? JSON.stringify(report, null, 2) : formatReport(report));
   return report.complete ? 0 : 2;
 }
 

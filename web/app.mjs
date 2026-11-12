@@ -1,5 +1,5 @@
 import { audit, validateOrg } from './audit.mjs';
-import { reportCsv } from './report-csv.mjs';
+import { reportCsv, reportMarkdown } from './report-csv.mjs';
 import { compareReports, createReportSession, parseSavedReport } from './report-compare.mjs';
 
 // Actual complete public wlkr-si audit captured via Codex CLI 0.163.0 / MCP on 2026-11-12.
@@ -51,14 +51,22 @@ function render({ report, origin }) {
   header.append(heading);
   if (origin.kind === 'saved') header.append(element('p', `Opened: ${origin.name} · ${report.complete ? 'Complete' : 'Incomplete'}`, 'summary saved-origin'));
   const downloads = element('div', undefined, 'download-actions');
-  for (const { extension, mime, content } of [
+  for (const { extension, mime, content, label } of [
     { extension: 'json', mime: 'application/json', content: () => JSON.stringify(report, null, 2) + '\n' },
     { extension: 'csv', mime: 'text/csv;charset=utf-8', content: () => reportCsv(report) },
+    { extension: 'md', label: 'Markdown', mime: 'text/markdown;charset=utf-8', content: () => reportMarkdown(report, { origin }) + '\n' },
   ]) {
-    const download = element('button', `Download ${extension.toUpperCase()}`, 'download');
+    const download = element('button', 'Download ' + (label || extension.toUpperCase()), 'download');
     download.type = 'button';
     download.addEventListener('click', () => {
-      downloadFile(content(), mime, `${report.organization}-studio-check.${extension}`);
+      let output;
+      try { output = content(); }
+      catch (error) {
+        if (extension !== 'md') throw error;
+        status.textContent = 'Markdown export failed: ' + error.message;
+        return;
+      }
+      downloadFile(output, mime, `${report.organization}-studio-check.${extension}`);
     });
     downloads.append(download);
   }
