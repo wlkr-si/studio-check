@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.0 - 2026-11-12
+
+- Added full Markdown report downloads in the browser and audit-only CLI --markdown output through one shared pure serializer. Saved origins, incomplete results, errors and repository/organization-default states remain explicit.
+- Constructed repository links use validated GitHub paths; untrusted metadata stays literal with visible control/bidi escapes. Filtering does not limit downloaded reports.
+
+Source release; live deployment is qualified separately. JSON/CSV, comparison, six served paths, publisher, dependencies and MCP package version 0.12.0 are unchanged.
+
 ## 0.13.0 - 2026-11-12
 
 - Added Load snapshot for the actual complete six-repository public wlkr-si report captured on 2026-11-12. It opens through strict saved-report parsing, retains the dated origin, supports existing JSON/CSV and baseline comparisons, and makes no request.

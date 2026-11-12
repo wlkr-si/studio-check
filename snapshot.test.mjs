@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { audit, validateOrg } from './web/audit.mjs';
-import { reportCsv } from './web/report-csv.mjs';
+import { reportCsv, reportMarkdown } from './web/report-csv.mjs';
 import { compareReports, createReportSession, parseSavedReport } from './web/report-compare.mjs';
 
 const source = await readFile(new URL('./web/app.mjs', import.meta.url), 'utf8');
@@ -49,8 +49,8 @@ function app({ fetchImpl = () => { throw new Error('Unexpected request'); }, aud
   }
   const harness = { nodes, downloads, historyWrites, document };
   const script = source.replace(/^import .*;$/gm, '').replace('export const PUBLIC_SNAPSHOT_TEXT', 'const PUBLIC_SNAPSHOT_TEXT');
-  const execute = new Function('document','location','history','audit','validateOrg','reportCsv','compareReports','createReportSession','parseSavedReport','File','AbortController','AbortSignal','fetch','URL','setTimeout', script);
-  execute(document, { href: 'https://owned.invalid/?org=wlkr-si' }, { replaceState(...args) { historyWrites.push(args); } }, auditImpl, validateOrg, reportCsv, compareReports, () => (harness.session = createReportSession()), parseSavedReport, File, AbortController, AbortSignal, fetchImpl, LocalURL, callback => callback());
+  const execute = new Function('document','location','history','audit','validateOrg','reportCsv','reportMarkdown','compareReports','createReportSession','parseSavedReport','File','AbortController','AbortSignal','fetch','URL','setTimeout', script);
+  execute(document, { href: 'https://owned.invalid/?org=wlkr-si' }, { replaceState(...args) { historyWrites.push(args); } }, auditImpl, validateOrg, reportCsv, reportMarkdown, compareReports, () => (harness.session = createReportSession()), parseSavedReport, File, AbortController, AbortSignal, fetchImpl, LocalURL, callback => callback());
   harness.load = () => nodes.get('#load-snapshot').click();
   harness.buttons = () => nodes.get('#results').querySelectorAll('button');
   harness.button = label => harness.buttons().find(node => node.textContent === label);
@@ -149,4 +149,33 @@ test('incompatible existing baseline rejects snapshot without replacing either r
   assert.equal(h.session.state.current, previous.current); assert.equal(h.session.state.baseline, previous.baseline);
   assert.match(h.nodes.get('#status').textContent, /different organizations.*Reports unchanged/);
   assert.equal(h.document.activeElement, h.nodes.get('#load-snapshot'));
+});
+
+test('Markdown download includes the complete saved snapshot despite the visible filter', async () => {
+  const h = app(); await h.load();
+  const filter = h.document.querySelector('#repository-filter');
+  filter.value='phosphor'; await filter.fire('input');
+  const visible = h.nodes.get('#results').descendants().filter(node=>node.tagName==='ARTICLE'&&!node.hidden);
+  assert.equal(visible.length,1);
+  await h.button('Download Markdown').click();
+  const download=h.downloads[0], text=await download.blob.text();
+  assert.equal(download.name,'wlkr-si-studio-check.md');
+  assert.equal(download.blob.type,'text/markdown;charset=utf-8');
+  assert.equal(text,reportMarkdown(snapshot,{origin:h.session.state.current.origin})+'\n');
+  assert.equal((text.match(/^## \[/gm)||[]).length,6);
+  assert.ok(text.includes('Saved report: "wlkr-si snapshot · 2026-11-12"'));
+  assert.deepEqual(h.historyWrites,[]);
+});
+
+test('Markdown validation failure keeps the current report and reports an error without a partial download', async () => {
+  const invalid = structuredClone(snapshot);
+  invalid.repositories[0].description='x'.repeat(20001);
+  const h=app({auditImpl:async()=>invalid});
+  await h.nodes.get('#audit-form').fire('submit');
+  const current=h.session.state.current;
+  await h.button('Download Markdown').click();
+  assert.equal(h.downloads.length,0);
+  assert.equal(h.session.state.current,current);
+  assert.match(h.nodes.get('#status').textContent,/Markdown export failed/);
+  assert.ok(h.nodes.get('#results').textContent.includes('x'.repeat(20001)));
 });
