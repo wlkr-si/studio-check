@@ -74,9 +74,9 @@ test('actual snapshot handler uses saved rendering and full JSON/CSV exports wit
   assert.equal(requests, 0); assert.deepEqual(h.historyWrites, []);
   assert.deepEqual(h.session.state.current.report, snapshot);
   assert.equal(h.session.state.current.origin.kind, 'saved');
-  assert.match(h.session.state.current.origin.name, /2026-11-12.*public MCP audit/);
+  assert.match(h.session.state.current.origin.name, /2026-11-12$/);
   assert.equal(h.document.activeElement.textContent, 'Saved report');
-  assert.match(h.nodes.get('#results').textContent, /Opened: .*2026-11-12.*public MCP audit/);
+  assert.match(h.nodes.get('#results').textContent, /Opened: .*2026-11-12/);
   await h.button('Download JSON').click();
   assert.equal(await h.downloads[0].blob.text(), snapshotText);
   await h.button('Download CSV').click();
@@ -96,7 +96,7 @@ test('snapshot stays enabled, aborts in-flight audit and prevents subsequent req
   await h.load(); await pending;
   assert.equal(aborted, true); assert.equal(requests, 1);
   assert.deepEqual(h.session.state.current.report, snapshot);
-  assert.equal(h.nodes.get('#status').textContent, 'Snapshot 2026-11-12 opened locally.');
+  assert.equal(h.nodes.get('#status').textContent, 'Snapshot opened.');
 });
 
 test('snapshot supersedes a late saved-current read while preserving compatible baseline', async () => {
@@ -112,7 +112,7 @@ test('snapshot supersedes a late saved-current read while preserving compatible 
   assert.deepEqual(h.session.state.current.report, snapshot);
   assert.deepEqual(h.session.state.baseline.report, snapshot);
   assert.deepEqual(h.session.comparison().changes, []);
-  assert.match(h.nodes.get('#status').textContent, /Snapshot 2026-11-12/);
+  assert.match(h.nodes.get('#status').textContent, /Snapshot opened/);
 });
 
 test('snapshot discards stale baseline read, clears and exports only the live comparison', async () => {
