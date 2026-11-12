@@ -51,6 +51,46 @@ function render(report) {
     results.append(details);
   }
   if (!report.repositories.length) results.append(element('p', report.complete ? 'No public repositories to report.' : 'No repositories could be reported.', 'empty'));
+  const rows = [];
+  if (report.repositories.length) {
+    const controls = element('div', undefined, 'report-filter');
+    const label = element('label', 'Filter repositories');
+    label.htmlFor = 'repository-filter';
+    const row = element('div', undefined, 'form-row');
+    const filter = element('input');
+    filter.id = 'repository-filter';
+    filter.type = 'search';
+    filter.autocomplete = 'off';
+    filter.spellcheck = false;
+    const clear = element('button', 'Clear', 'download');
+    clear.type = 'button';
+    clear.hidden = true;
+    const count = element('p', undefined, 'summary');
+    count.setAttribute('role', 'status');
+    count.setAttribute('aria-live', 'polite');
+    count.setAttribute('aria-atomic', 'true');
+    const empty = element('p', 'No matching repositories.', 'empty');
+    empty.hidden = true;
+    const normalize = value => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    function updateFilter() {
+      const terms = normalize(filter.value).trim().split(/\s+/).filter(Boolean);
+      let shown = 0;
+      for (const { article, text } of rows) {
+        article.hidden = !terms.every(term => text.includes(term));
+        if (!article.hidden) shown++;
+      }
+      clear.hidden = !filter.value;
+      count.textContent = `${shown} of ${rows.length} repositories`;
+      empty.hidden = shown > 0;
+    }
+    filter.addEventListener('input', updateFilter);
+    clear.addEventListener('click', () => { filter.value = ''; updateFilter(); filter.focus(); });
+    row.append(filter, clear);
+    controls.append(label, row, count, empty);
+    results.append(controls);
+    // Rows are filled synchronously below, before any user input can run.
+    count.textContent = `${report.repositories.length} of ${report.repositories.length} repositories`;
+  }
   for (const repo of report.repositories) {
     const article = element('article', undefined, 'repository');
     const title = element('h3');
@@ -77,6 +117,7 @@ function render(report) {
     }
     article.append(list);
     if (repo.fork) article.append(element('p', 'Fork: community profile unavailable', 'summary'));
+    rows.push({ article, text: `${repo.name} ${repo.description || ''}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() });
     results.append(article);
   }
   results.hidden = false;
