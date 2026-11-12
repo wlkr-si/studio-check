@@ -62,6 +62,8 @@ node --test *.test.mjs
 
 Audit tests inject an in-memory fetch fixture and never call GitHub. Offline CLI tests use task-owned temporary files, real process entry points, FIFO/device rejection and a fetch guard; fixtures are removed after each test.
 
+All 46 tests passed on Linux with Node 26.8.2 and macOS with Node 26.5.0. The macOS run used the same committed CLI, reader, shared modules and tests without installing dependencies. These are the qualified runtime combinations; native file flags and filesystem behavior still apply.
+
 ## Browser app
 
 Serve the `web` directory with any static HTTP server. For example, if Python 3 is already available:
