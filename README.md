@@ -67,10 +67,21 @@ node --check studio-check.mjs
 node --check web/audit.mjs
 node --check web/app.mjs
 node --check web/report-csv.mjs
+node --check web/report-compare.mjs
 node --test *.test.mjs
 ```
 
 For browser verification, serve `web`, confirm no API request happens before **Audit**, run an audit, and check complete, incomplete, empty, and rate-limit results. Check keyboard focus and a 320px viewport. Public descriptions must render as text, including strings resembling HTML; repository links must stay on `github.com`. Browser results are live public metadata, not bundled demo results.
+
+## Compare a saved report
+
+After an audit finishes, choose **Compare saved JSON** and select a report previously downloaded from studio-check. Import and comparison happen in memory in this browser; no file, filename, metadata, or comparison is uploaded or saved to browser storage. **Clear baseline** discards it. A page reload also discards it. A selected baseline can be reused for another audit, with an explicit incompatibility message for a different organization or Include archived mode.
+
+The importer accepts UTF-8 JSON up to 5 MiB and 5,000 repositories, with bounded metadata and request errors. It validates the exact report structure, repository identity, unique names, archive flags, file states, and license declarations. Extra or missing fields, malformed data, or incompatible modes are rejected. Invalid imports keep any previous baseline and say so. These bounds can reject unusually large genuine reports; the existing CLI and JSON/CSV exports are unchanged.
+
+Comparison shows description, optional homepage, archive/fork flags, declared license, README and community-file presence/source changes. Unknown and organization-default states remain explicit. File URLs and file contents are not compared. Added/Removed describe differences between the selected reports only, and appear only when **both** report completeness flags are true. If either report is incomplete, membership differences remain unconfirmed, including empty reports. Reports have no capture timestamp or authenticity signature: comparison cannot establish their age, accuracy, or an atomic history of GitHub changes. Imported metadata is rendered as text and imported URLs are never followed. JSON/CSV downloads still contain only the entire current audit, unaffected by the baseline or repository filter.
+
+For local browser verification, use controlled GitHub response fixtures, import complete/partial/incompatible/malformed saved JSON, check literal HTML-like metadata, then clear with the keyboard. Confirm no API call occurs during import/clear, downloads stay unchanged, and the comparison fits 320px with reduced motion.
 
 ## Limits
 
