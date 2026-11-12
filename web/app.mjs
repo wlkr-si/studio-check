@@ -1,6 +1,6 @@
 import { audit, validateOrg } from './audit.mjs';
 import { reportCsv } from './report-csv.mjs';
-import { MAX_REPORT_BYTES, parseSavedReport, compareReports } from './report-compare.mjs';
+import { compareReports, createReportSession } from './report-compare.mjs';
 
 const form = document.querySelector('#audit-form');
 const input = document.querySelector('#organization');
@@ -8,10 +8,8 @@ const button = document.querySelector('#audit-button');
 const archived = document.querySelector('#include-archived');
 const status = document.querySelector('#status');
 const results = document.querySelector('#results');
-let pending = false;
-let baseline = null;
-let baselineName = '';
-let comparisonRevision = 0;
+const openSaved = document.querySelector('#saved-report');
+const session = createReportSession();
 
 const sharedOrg = new URL(location.href).searchParams.get('org');
 if (sharedOrg !== null) input.value = sharedOrg;
@@ -28,13 +26,13 @@ function stateText(state) {
   return state.status === 'present' ? 'Present' : state.status === 'not-reported' ? 'Not reported' : 'Unknown';
 }
 
-function render(report) {
-  comparisonRevision++;
+function render({ report, origin }) {
   results.replaceChildren();
   const header = element('div', undefined, 'result-header');
-  const heading = element('h2', report.complete ? 'Audit complete' : 'Audit incomplete', report.complete ? 'complete' : '');
+  const heading = element('h2', origin.kind === 'saved' ? 'Saved report' : report.complete ? 'Audit complete' : 'Audit incomplete', report.complete ? 'complete' : '');
   heading.tabIndex = -1;
   header.append(heading);
+  if (origin.kind === 'saved') header.append(element('p', `Opened: ${origin.name} · ${report.complete ? 'Complete' : 'Incomplete'}`, 'summary saved-origin'));
   const downloads = element('div', undefined, 'download-actions');
   for (const { extension, mime, content } of [
     { extension: 'json', mime: 'application/json', content: () => JSON.stringify(report, null, 2) + '\n' },
@@ -138,22 +136,54 @@ function render(report) {
   heading.focus({ preventScroll: true });
 }
 
+function syncControls() {
+  const busy = session.state.busy;
+  input.readOnly = Boolean(busy);
+  archived.disabled = button.disabled = openSaved.disabled = Boolean(busy);
+  button.textContent = busy === 'audit' ? 'Auditing…' : 'Audit';
+  for (const control of results.querySelectorAll('button,input')) control.disabled = Boolean(busy);
+  if (busy) results.setAttribute('aria-busy', 'true');
+  else results.removeAttribute('aria-busy');
+}
+
+openSaved.addEventListener('change', async () => {
+  const selected = openSaved.files?.[0];
+  if (!selected || session.state.busy) return;
+  const opening = session.openCurrent(selected);
+  const revision = session.state.generation;
+  let failed = false;
+  syncControls();
+  status.textContent = 'Opening saved report…';
+  try {
+    if (!await opening) return;
+    const current = session.state.current;
+    input.value = current.report.organization;
+    archived.checked = current.report.includeArchived;
+    render(current);
+    status.textContent = 'Saved report opened locally.';
+  } catch (error) {
+    if (revision !== session.state.generation) return;
+    status.textContent = `${error.message} Reports unchanged.`;
+    failed = true;
+  } finally {
+    if (revision === session.state.generation) openSaved.value = '';
+    syncControls();
+    if (failed) openSaved.focus();
+  }
+});
+
 form.addEventListener('submit', async event => {
   event.preventDefault();
-  if (pending) return;
+  if (session.state.busy) return;
   const org = input.value.trim();
   try { validateOrg(org); }
   catch (error) { status.textContent = error.message; input.focus(); return; }
-  comparisonRevision++;
-  pending = true;
   input.value = org;
-  input.readOnly = true;
   const includeArchived = archived.checked;
-  archived.disabled = true;
-  button.disabled = true;
-  button.textContent = 'Auditing…';
-  results.hidden = true;
-  results.setAttribute('aria-busy', 'true');
+  const auditing = session.runAudit(() => audit(org, { includeArchived }));
+  const revision = session.state.generation;
+  let failed = false;
+  syncControls();
   status.textContent = `Auditing ${org}…`;
   const url = new URL(location.href);
   url.searchParams.set('org', org);
@@ -161,26 +191,20 @@ form.addEventListener('submit', async event => {
   else url.searchParams.delete('archived');
   history.replaceState(null, '', url);
   try {
-    const report = await audit(org, { includeArchived });
-    render(report);
-    status.textContent = report.complete ? `${org} audit complete.` : `${org} audit incomplete. Unknown results are not missing files.`;
+    if (!await auditing) return;
+    render(session.state.current);
+    status.textContent = session.state.current.report.complete ? `${org} audit complete.` : `${org} audit incomplete. Unknown results are not missing files.`;
   } catch (error) {
+    if (revision !== session.state.generation) return;
     status.textContent = `Audit failed: ${error.message}`;
-    input.focus();
-  } finally {
-    pending = false;
-    input.readOnly = false;
-    archived.disabled = false;
-    button.disabled = false;
-    button.textContent = 'Audit';
-    results.removeAttribute('aria-busy');
-  }
+    failed = true;
+  } finally { syncControls(); if (failed) input.focus(); }
 });
 
 function renderComparison(report) {
   const section = element('section', undefined, 'comparison');
   section.setAttribute('aria-label', 'Saved report comparison');
-  const label = element('label', 'Compare saved JSON');
+  const label = element('label', 'Compare baseline JSON');
   label.htmlFor = 'baseline-file';
   const file = element('input');
   file.id = 'baseline-file';
@@ -194,25 +218,26 @@ function renderComparison(report) {
   notice.setAttribute('aria-live', 'polite');
   const content = element('div');
   function update() {
+    const { baseline } = session.state;
     clear.hidden = !baseline;
-    selection.textContent = baseline ? `Saved report: ${baselineName}` : '';
+    selection.textContent = baseline ? `Baseline: ${baseline.name}` : '';
     content.replaceChildren();
     if (!baseline) return;
     let comparison;
-    try { comparison = compareReports(baseline, report); }
+    try { comparison = compareReports(baseline.report, report); }
     catch (error) { notice.textContent = `Cannot compare: ${error.message}`; return; }
-    const title = element('h2', 'Changes from saved report');
+    const title = element('h2', 'Changes from baseline');
     title.tabIndex = -1;
-    content.append(title, element('p', `Saved: ${comparison.baselineComplete ? 'complete' : 'incomplete'} · Current: ${comparison.currentComplete ? 'complete' : 'incomplete'}`, 'summary'));
+    content.append(title, element('p', `Baseline: ${comparison.baselineComplete ? 'complete' : 'incomplete'} · Current: ${comparison.currentComplete ? 'complete' : 'incomplete'}`, 'summary'));
     if (!comparison.membershipConfirmed) content.append(element('p', 'At least one report is incomplete. Repository membership differences are unconfirmed; unknown file states are not missing files.', 'description'));
     if (!comparison.changes.length) content.append(element('p', comparison.membershipConfirmed ? 'No recorded changes.' : 'No differences in the collected repositories. Incomplete reports cannot establish unchanged membership.', 'description'));
     for (const change of comparison.changes) {
       const article = element('article', undefined, 'comparison-repository');
       article.append(element('h3', change.name));
-      if (change.membership) article.append(element('p', change.membership));
+      if (change.membership) article.append(element('p', change.membership.replace('saved report', 'baseline')));
       for (const field of change.fields) {
         const row = element('p', undefined, 'field-change');
-        row.append(element('strong', field.field), element('span', `Saved: ${field.before}`), element('span', `Current: ${field.after}`));
+        row.append(element('strong', field.field), element('span', `Baseline: ${field.before}`), element('span', `Current: ${field.after}`));
         article.append(row);
       }
       content.append(article);
@@ -220,36 +245,32 @@ function renderComparison(report) {
   }
   file.addEventListener('change', async () => {
     const selected = file.files?.[0];
-    if (!selected) return;
-    const revision = ++comparisonRevision;
-    file.disabled = clear.disabled = true;
-    notice.textContent = 'Reading saved report…';
+    if (!selected || session.state.busy) return;
+    const importing = session.openBaseline(selected);
+    const revision = session.state.generation;
+    let failed = false;
+    syncControls();
+    notice.textContent = 'Reading baseline…';
     try {
-      if (selected.size > MAX_REPORT_BYTES) throw new Error('Saved report exceeds the 5 MiB limit.');
-      const buffer = await selected.arrayBuffer();
-      if (revision !== comparisonRevision) return;
-      let text;
-      try { text = new TextDecoder('utf-8', { fatal: true }).decode(buffer); }
-      catch { throw new Error('Saved report must be UTF-8 JSON.'); }
-      const imported = parseSavedReport(text);
-      // Check compatibility before replacing an existing baseline.
-      compareReports(imported, report);
-      baseline = imported;
-      baselineName = selected.name.slice(0, 200);
-      notice.textContent = 'Saved report imported locally.';
+      if (!await importing) return;
+      notice.textContent = 'Baseline imported locally.';
       update();
       content.querySelector('h2')?.focus({ preventScroll: true });
     } catch (error) {
-      notice.textContent = `${error.message}${baseline ? ' Previous baseline retained.' : ''}`;
-      file.value = '';
-    } finally { file.disabled = clear.disabled = false; }
+      if (revision !== session.state.generation) return;
+      notice.textContent = `${error.message} Reports unchanged.`;
+      failed = true;
+    } finally {
+      if (revision === session.state.generation) file.value = '';
+      syncControls();
+      if (failed) file.focus();
+    }
   });
   clear.addEventListener('click', () => {
-    comparisonRevision++;
-    baseline = null;
-    baselineName = '';
+    if (session.state.busy) return;
+    session.clearBaseline();
     file.value = '';
-    notice.textContent = 'Saved report cleared.';
+    notice.textContent = 'Baseline cleared.';
     update();
     file.focus();
   });
