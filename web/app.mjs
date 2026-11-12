@@ -1,5 +1,6 @@
 import { audit, validateOrg } from './audit.mjs';
 import { reportCsv } from './report-csv.mjs';
+import { MAX_REPORT_BYTES, parseSavedReport, compareReports } from './report-compare.mjs';
 
 const form = document.querySelector('#audit-form');
 const input = document.querySelector('#organization');
@@ -8,6 +9,9 @@ const archived = document.querySelector('#include-archived');
 const status = document.querySelector('#status');
 const results = document.querySelector('#results');
 let pending = false;
+let baseline = null;
+let baselineName = '';
+let comparisonRevision = 0;
 
 const sharedOrg = new URL(location.href).searchParams.get('org');
 if (sharedOrg !== null) input.value = sharedOrg;
@@ -25,6 +29,7 @@ function stateText(state) {
 }
 
 function render(report) {
+  comparisonRevision++;
   results.replaceChildren();
   const header = element('div', undefined, 'result-header');
   const heading = element('h2', report.complete ? 'Audit complete' : 'Audit incomplete', report.complete ? 'complete' : '');
@@ -58,6 +63,7 @@ function render(report) {
     details.append(list);
     results.append(details);
   }
+  renderComparison(report);
   if (!report.repositories.length) results.append(element('p', report.complete ? 'No public repositories to report.' : 'No repositories could be reported.', 'empty'));
   const rows = [];
   if (report.repositories.length) {
@@ -138,6 +144,7 @@ form.addEventListener('submit', async event => {
   const org = input.value.trim();
   try { validateOrg(org); }
   catch (error) { status.textContent = error.message; input.focus(); return; }
+  comparisonRevision++;
   pending = true;
   input.value = org;
   input.readOnly = true;
@@ -169,3 +176,84 @@ form.addEventListener('submit', async event => {
     results.removeAttribute('aria-busy');
   }
 });
+
+function renderComparison(report) {
+  const section = element('section', undefined, 'comparison');
+  section.setAttribute('aria-label', 'Saved report comparison');
+  const label = element('label', 'Compare saved JSON');
+  label.htmlFor = 'baseline-file';
+  const file = element('input');
+  file.id = 'baseline-file';
+  file.type = 'file';
+  file.accept = '.json,application/json';
+  const clear = element('button', 'Clear baseline', 'download');
+  clear.type = 'button';
+  const selection = element('p', undefined, 'summary');
+  const notice = element('p', undefined, 'comparison-status');
+  notice.setAttribute('role', 'status');
+  notice.setAttribute('aria-live', 'polite');
+  const content = element('div');
+  function update() {
+    clear.hidden = !baseline;
+    selection.textContent = baseline ? `Saved report: ${baselineName}` : '';
+    content.replaceChildren();
+    if (!baseline) return;
+    let comparison;
+    try { comparison = compareReports(baseline, report); }
+    catch (error) { notice.textContent = `Cannot compare: ${error.message}`; return; }
+    const title = element('h2', 'Changes from saved report');
+    title.tabIndex = -1;
+    content.append(title, element('p', `Saved: ${comparison.baselineComplete ? 'complete' : 'incomplete'} · Current: ${comparison.currentComplete ? 'complete' : 'incomplete'}`, 'summary'));
+    if (!comparison.membershipConfirmed) content.append(element('p', 'At least one report is incomplete. Repository membership differences are unconfirmed; unknown file states are not missing files.', 'description'));
+    if (!comparison.changes.length) content.append(element('p', comparison.membershipConfirmed ? 'No recorded changes.' : 'No differences in the collected repositories. Incomplete reports cannot establish unchanged membership.', 'description'));
+    for (const change of comparison.changes) {
+      const article = element('article', undefined, 'comparison-repository');
+      article.append(element('h3', change.name));
+      if (change.membership) article.append(element('p', change.membership));
+      for (const field of change.fields) {
+        const row = element('p', undefined, 'field-change');
+        row.append(element('strong', field.field), element('span', `Saved: ${field.before}`), element('span', `Current: ${field.after}`));
+        article.append(row);
+      }
+      content.append(article);
+    }
+  }
+  file.addEventListener('change', async () => {
+    const selected = file.files?.[0];
+    if (!selected) return;
+    const revision = ++comparisonRevision;
+    file.disabled = clear.disabled = true;
+    notice.textContent = 'Reading saved report…';
+    try {
+      if (selected.size > MAX_REPORT_BYTES) throw new Error('Saved report exceeds the 5 MiB limit.');
+      const buffer = await selected.arrayBuffer();
+      if (revision !== comparisonRevision) return;
+      let text;
+      try { text = new TextDecoder('utf-8', { fatal: true }).decode(buffer); }
+      catch { throw new Error('Saved report must be UTF-8 JSON.'); }
+      const imported = parseSavedReport(text);
+      // Check compatibility before replacing an existing baseline.
+      compareReports(imported, report);
+      baseline = imported;
+      baselineName = selected.name.slice(0, 200);
+      notice.textContent = 'Saved report imported locally.';
+      update();
+      content.querySelector('h2')?.focus({ preventScroll: true });
+    } catch (error) {
+      notice.textContent = `${error.message}${baseline ? ' Previous baseline retained.' : ''}`;
+      file.value = '';
+    } finally { file.disabled = clear.disabled = false; }
+  });
+  clear.addEventListener('click', () => {
+    comparisonRevision++;
+    baseline = null;
+    baselineName = '';
+    file.value = '';
+    notice.textContent = 'Saved report cleared.';
+    update();
+    file.focus();
+  });
+  section.append(label, file, clear, selection, notice, content);
+  update();
+  results.append(section);
+}

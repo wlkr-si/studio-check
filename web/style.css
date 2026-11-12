@@ -62,3 +62,11 @@ nav { display: flex; gap: 24px; font-size: .8125rem; color: var(--muted); }
 .report-filter .summary { margin-top: 12px; }
 
 .download-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.comparison { border-top: 1px solid var(--line); padding: 24px 0; }
+.comparison input[type=file] { display: block; width: 100%; max-width: 560px; padding: 10px; margin-bottom: 12px; font-size: .8125rem; }
+.comparison-status { color: var(--muted); font-size: .875rem; line-height: 1.5; overflow-wrap: anywhere; }
+.comparison .summary { overflow-wrap: anywhere; margin: 12px 0; }
+.comparison-repository { margin-top: 24px; }
+.field-change { font-size: .875rem; line-height: 1.6; overflow-wrap: anywhere; }
+.field-change span, .field-change strong { display: block; }
